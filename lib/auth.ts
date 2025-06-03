@@ -104,43 +104,46 @@ export async function registerUser(formData: FormData) {
 
     const hashedPassword = await bcrypt.hash(password, 10)
 
-    // Start a transaction
-    const result = await sql.transaction(async (tx) => {
-      // 1. Create the user
-      const newUser = await tx`
-        INSERT INTO users (name, email, password_hash)
-        VALUES (${name}, ${email}, ${hashedPassword})
-        RETURNING id
-      `
-      const userId = newUser[0].id
+    // Synchronize sequences before inserting
+    await sql`SELECT setval('users_id_seq', (SELECT COALESCE(MAX(id), 0) FROM users) + 1, false)`
+    await sql`SELECT setval('restaurants_id_seq', (SELECT COALESCE(MAX(id), 0) FROM restaurants) + 1, false)`
 
-      // 2. Create a default restaurant for the new user
-      const newRestaurant = await tx`
-        INSERT INTO restaurants (name, owner_user_id, phone, email)
-        VALUES (${name}'s Restaurant', ${userId}, ${phone}, ${email})
-        RETURNING id
-      `
-      const restaurantId = newRestaurant[0].id
+    // Execute queries sequentially
+    // 1. Create the user (let the database auto-assign the ID)
+    const newUser = await sql`
+      INSERT INTO users (name, email, password_hash)
+      VALUES (${name}, ${email}, ${hashedPassword})
+      RETURNING id
+    `
+    const userId = newUser[0].id
 
-      // 3. Link the restaurant to the user
-      await tx`
-        UPDATE users
-        SET restaurant_id = ${restaurantId}
-        WHERE id = ${userId}
-      `
+    // 2. Create a default restaurant for the new user
+    const newRestaurant = await sql`
+      INSERT INTO restaurants (name, owner_user_id, phone, email)
+      VALUES (${name + "'s Restaurant"}, ${userId}, ${phone}, ${email})
+      RETURNING id
+    `
+    const restaurantId = newRestaurant[0].id
 
-      // Set session cookie
-      await setSessionCookie(userId, restaurantId)
+    // 3. Link the restaurant to the user
+    await sql`
+      UPDATE users
+      SET restaurant_id = ${restaurantId}
+      WHERE id = ${userId}
+    `
 
-      return { success: true, userId, restaurantId }
-    })
+    // Set session cookie
+    await setSessionCookie(userId, restaurantId)
 
-    revalidatePath("/") // Revalidate paths that depend on user/restaurant data
-    redirect("/onboarding") // Redirect to onboarding after successful registration
+    // Revalidate paths that depend on user/restaurant data
+    revalidatePath("/")
   } catch (error) {
     console.error("Error during registration:", error)
     return { success: false, error: "Error al registrar la cuenta. Inténtalo de nuevo." }
   }
+
+  // Redirect outside of try-catch to avoid catching the redirect error
+  redirect("/onboarding")
 }
 
 export async function loginUser(formData: FormData) {
@@ -166,12 +169,15 @@ export async function loginUser(formData: FormData) {
     // Set session cookie
     await setSessionCookie(user.id, user.restaurant_id)
 
-    revalidatePath("/") // Revalidate paths that depend on user/restaurant data
-    redirect("/dashboard") // Redirect to dashboard after successful login
+    // Revalidate paths that depend on user/restaurant data
+    revalidatePath("/")
   } catch (error) {
     console.error("Error during login:", error)
     return { success: false, error: "Error al iniciar sesión. Inténtalo de nuevo." }
   }
+
+  // Redirect outside of try-catch to avoid catching the redirect error
+  redirect("/dashboard")
 }
 
 export async function logoutUser() {

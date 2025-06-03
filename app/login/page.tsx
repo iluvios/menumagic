@@ -7,14 +7,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Menu, Eye, EyeOff, ArrowLeft, Mail, Lock } from "lucide-react"
 import Link from "next/link"
 import { loginUser } from "@/lib/auth"
+import { isRedirectError } from "next/dist/client/components/redirect" // Import isRedirectError
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
-  const [rememberMe, setRememberMe] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -22,13 +21,23 @@ export default function LoginPage() {
     setIsLoading(true)
 
     const formData = new FormData(e.currentTarget as HTMLFormElement)
-    const result = await loginUser(formData)
 
-    if (result?.error) {
-      alert(result.error) // Display error message
+    try {
+      const result = await loginUser(formData)
+
+      if (result?.error) {
+        alert(result.error) // Display error message
+        setIsLoading(false)
+      }
+    } catch (error) {
+      if (isRedirectError(error)) {
+        // Expected redirect, do nothing as Next.js handles navigation
+        throw error // Re-throw the error to let Next.js handle the redirect
+      }
+      console.error("Unexpected error during login:", error)
+      alert("Ocurrió un error inesperado. Inténtalo de nuevo.")
       setIsLoading(false)
     }
-    // Redirection is handled by the server action
   }
 
   return (
@@ -53,18 +62,18 @@ export default function LoginPage() {
             </div>
             <h1 className="text-3xl font-bold text-gray-900">MenuMagic</h1>
           </div>
-          <p className="text-gray-600">Inicia sesión en tu cuenta</p>
+          <p className="text-gray-600">Accede a tu cuenta</p>
         </div>
 
         {/* Login Card */}
         <Card className="shadow-2xl border-0">
           <CardHeader className="space-y-1 pb-6">
-            <CardTitle className="text-2xl font-bold text-center text-gray-900">Bienvenido de vuelta</CardTitle>
-            <p className="text-center text-gray-600">Ingresa tus credenciales para acceder a tu panel</p>
+            <CardTitle className="text-2xl font-bold text-center text-gray-900">Bienvenido de nuevo</CardTitle>
+            <p className="text-center text-gray-600">Inicia sesión para continuar</p>
           </CardHeader>
 
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-5">
               {/* Email Field */}
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-sm font-medium text-gray-700">
@@ -74,6 +83,7 @@ export default function LoginPage() {
                   <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <Input
                     id="email"
+                    name="email"
                     type="email"
                     placeholder="tu@restaurante.com"
                     className="pl-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
@@ -91,8 +101,9 @@ export default function LoginPage() {
                   <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <Input
                     id="password"
+                    name="password"
                     type={showPassword ? "text" : "password"}
-                    placeholder="••••••••"
+                    placeholder="Ingresa tu contraseña"
                     className="pl-10 pr-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
                     required
                   />
@@ -106,22 +117,11 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Remember me and Forgot password */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="remember"
-                    checked={rememberMe}
-                    onCheckedChange={(checked) => setRememberMe(checked as boolean)}
-                    className="border-gray-300 data-[state=checked]:bg-orange-500 data-[state=checked]:border-orange-500"
-                  />
-                  <Label htmlFor="remember" className="text-sm text-gray-600 cursor-pointer">
-                    Recordarme
-                  </Label>
-                </div>
+              {/* Forgot Password Link */}
+              <div className="text-right text-sm">
                 <Link
                   href="/forgot-password"
-                  className="text-sm text-orange-600 hover:text-orange-700 transition-colors"
+                  className="text-orange-600 hover:text-orange-700 font-medium transition-colors"
                 >
                   ¿Olvidaste tu contraseña?
                 </Link>
@@ -149,7 +149,7 @@ export default function LoginPage() {
                   <div className="w-full border-t border-gray-200"></div>
                 </div>
                 <div className="relative flex justify-center text-sm">
-                  <span className="px-4 bg-white text-gray-500">o continúa con</span>
+                  <span className="px-4 bg-white text-gray-500">o inicia sesión con</span>
                 </div>
               </div>
 
@@ -185,31 +185,17 @@ export default function LoginPage() {
               </div>
             </form>
 
-            {/* Sign up link */}
+            {/* Register link */}
             <div className="mt-6 text-center">
               <p className="text-gray-600">
                 ¿No tienes una cuenta?{" "}
                 <Link href="/register" className="text-orange-600 hover:text-orange-700 font-medium transition-colors">
-                  Regístrate gratis
+                  Regístrate
                 </Link>
               </p>
             </div>
           </CardContent>
         </Card>
-
-        {/* Footer */}
-        <div className="mt-8 text-center text-sm text-gray-500">
-          <p>
-            Al iniciar sesión, aceptas nuestros{" "}
-            <Link href="/terms" className="text-orange-600 hover:text-orange-700 transition-colors">
-              Términos de Servicio
-            </Link>{" "}
-            y{" "}
-            <Link href="/privacy" className="text-orange-600 hover:text-orange-700 transition-colors">
-              Política de Privacidad
-            </Link>
-          </p>
-        </div>
       </div>
     </div>
   )

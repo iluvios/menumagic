@@ -1,409 +1,257 @@
 "use client"
 
-import { useState } from "react"
+import type React from "react"
+
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
-import { Menu, Store, MapPin, Users, Clock, ChefHat, ArrowRight, CheckCircle } from "lucide-react"
-import Link from "next/link"
+import { Loader2, CheckCircle2 } from "lucide-react"
+import { getCurrentUserAndRestaurant } from "@/lib/auth"
+import { updateRestaurantProfile } from "@/lib/actions/restaurant-actions"
+import { useRouter } from "next/navigation"
+
+interface RestaurantProfile {
+  id: number
+  name: string
+  address_json: { street?: string; city?: string; state?: string; zip?: string } | null
+  phone: string
+  email: string
+  cuisine_type: string | null
+  operating_hours_json: any | null
+  currency_code: string | null
+  timezone: string | null
+  default_tax_rate_percentage: number | null
+}
 
 export default function OnboardingPage() {
-  const [currentStep, setCurrentStep] = useState(1)
-  const [isLoading, setIsLoading] = useState(false)
-  const [formData, setFormData] = useState({
-    restaurantName: "",
-    restaurantType: "",
-    address: "",
-    city: "",
-    state: "",
-    zipCode: "",
-    description: "",
-    capacity: "",
-    openingHours: "",
-    specialties: [] as string[],
-  })
+  const router = useRouter()
+  const [restaurant, setRestaurant] = useState<RestaurantProfile | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const restaurantTypes = [
-    "Restaurante casual",
-    "Restaurante fino",
-    "Comida rápida",
-    "Cafetería",
-    "Bar/Cantina",
-    "Pizzería",
-    "Marisquería",
-    "Taquería",
-    "Panadería",
-    "Food truck",
-    "Otro",
-  ]
+  useEffect(() => {
+    async function fetchRestaurantData() {
+      const { restaurant } = await getCurrentUserAndRestaurant()
+      if (restaurant) {
+        setRestaurant({
+          ...restaurant,
+          address_json: restaurant.address_json || {},
+          operating_hours_json: restaurant.operating_hours_json || {},
+        })
+      } else {
+        // If no restaurant, redirect to login or registration
+        router.push("/login")
+      }
+      setIsLoading(false)
+    }
+    fetchRestaurantData()
+  }, [router])
 
-  const specialtyOptions = [
-    "Comida mexicana",
-    "Comida italiana",
-    "Comida asiática",
-    "Comida americana",
-    "Mariscos",
-    "Carnes",
-    "Vegetariano/Vegano",
-    "Postres",
-    "Bebidas especiales",
-    "Comida internacional",
-  ]
-
-  const handleInputChange = (field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { id, value } = e.target
+    setRestaurant((prev) => {
+      if (!prev) return null
+      if (id.startsWith("address_")) {
+        const addressKey = id.replace("address_", "")
+        return {
+          ...prev,
+          address_json: {
+            ...prev.address_json,
+            [addressKey]: value,
+          },
+        }
+      }
+      return { ...prev, [id]: value }
+    })
   }
 
-  const handleSpecialtyToggle = (specialty: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      specialties: prev.specialties.includes(specialty)
-        ? prev.specialties.filter((s) => s !== specialty)
-        : [...prev.specialties, specialty],
-    }))
+  const handleSelectChange = (id: string, value: string) => {
+    setRestaurant((prev) => {
+      if (!prev) return null
+      return { ...prev, [id]: value }
+    })
   }
 
-  const handleNext = () => {
-    if (currentStep < 3) {
-      setCurrentStep(currentStep + 1)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!restaurant) return
+
+    setIsSaving(true)
+    setError(null)
+    setSaveSuccess(false)
+
+    try {
+      const result = await updateRestaurantProfile(restaurant.id, restaurant)
+      if (result.success) {
+        setSaveSuccess(true)
+        setTimeout(() => {
+          setSaveSuccess(false)
+          router.push("/dashboard") // Redirect to dashboard after successful onboarding
+        }, 1500)
+      } else {
+        setError(result.error || "Failed to update profile.")
+      }
+    } catch (err) {
+      console.error("Error saving restaurant profile:", err)
+      setError("An unexpected error occurred.")
+    } finally {
+      setIsSaving(false)
     }
   }
 
-  const handleBack = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1)
-    }
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-red-50">
+        <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+        <span className="ml-2 text-gray-700">Cargando perfil del restaurante...</span>
+      </div>
+    )
   }
 
-  const handleSubmit = async () => {
-    setIsLoading(true)
-
-    // Simular llamada a API
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    console.log("Onboarding completed:", formData)
-
-    // Simular redirección al dashboard
-    window.location.href = "/dashboard"
-
-    setIsLoading(false)
-  }
-
-  const isStepValid = () => {
-    switch (currentStep) {
-      case 1:
-        return formData.restaurantName && formData.restaurantType
-      case 2:
-        return formData.address && formData.city && formData.state
-      case 3:
-        return true // Opcional
-      default:
-        return false
-    }
+  if (!restaurant) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-orange-50 to-red-50 text-red-600">
+        No se pudo cargar el perfil del restaurante. Por favor, inicia sesión de nuevo.
+      </div>
+    )
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 flex items-center justify-center p-4">
-      {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-r from-orange-400 to-red-400 rounded-full opacity-10"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-r from-red-400 to-orange-400 rounded-full opacity-10"></div>
-      </div>
-
-      <div className="w-full max-w-2xl relative z-10">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="flex items-center justify-center space-x-3 mb-4">
-            <div className="w-12 h-12 bg-gradient-to-r from-orange-500 to-red-500 rounded-xl flex items-center justify-center">
-              <Menu className="w-7 h-7 text-white" />
+      <Card className="w-full max-w-2xl shadow-2xl border-0">
+        <CardHeader className="space-y-1 pb-6">
+          <CardTitle className="text-3xl font-bold text-center text-gray-900">¡Bienvenido a MenuMagic!</CardTitle>
+          <p className="text-center text-gray-600">Completa la información de tu restaurante para empezar.</p>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Restaurant Name */}
+            <div className="space-y-2">
+              <Label htmlFor="name">Nombre del Restaurante</Label>
+              <Input id="name" value={restaurant.name || ""} onChange={handleChange} required />
             </div>
-            <h1 className="text-3xl font-bold text-gray-900">MenuMagic</h1>
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">¡Bienvenido a MenuMagic!</h2>
-          <p className="text-gray-600">Cuéntanos sobre tu restaurante para personalizar tu experiencia</p>
-        </div>
 
-        {/* Progress indicator */}
-        <div className="flex items-center justify-center mb-8">
-          <div className="flex items-center space-x-4">
-            {[1, 2, 3].map((step) => (
-              <div key={step} className="flex items-center">
-                <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
-                    step <= currentStep
-                      ? "bg-gradient-to-r from-orange-500 to-red-500 text-white"
-                      : "bg-gray-200 text-gray-500"
-                  }`}
+            {/* Address */}
+            <div className="space-y-2">
+              <Label>Dirección del Restaurante</Label>
+              <Input
+                id="address_street"
+                placeholder="Calle y número"
+                value={restaurant.address_json?.street || ""}
+                onChange={handleChange}
+                className="mb-2"
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <Input
+                  id="address_city"
+                  placeholder="Ciudad"
+                  value={restaurant.address_json?.city || ""}
+                  onChange={handleChange}
+                />
+                <Input
+                  id="address_state"
+                  placeholder="Estado"
+                  value={restaurant.address_json?.state || ""}
+                  onChange={handleChange}
+                />
+                <Input
+                  id="address_zip"
+                  placeholder="Código Postal"
+                  value={restaurant.address_json?.zip || ""}
+                  onChange={handleChange}
+                />
+              </div>
+            </div>
+
+            {/* Contact Info */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="phone">Teléfono</Label>
+                <Input id="phone" type="tel" value={restaurant.phone || ""} onChange={handleChange} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Correo Electrónico</Label>
+                <Input id="email" type="email" value={restaurant.email || ""} onChange={handleChange} />
+              </div>
+            </div>
+
+            {/* Cuisine Type & Currency */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="cuisine_type">Tipo de Cocina</Label>
+                <Input id="cuisine_type" value={restaurant.cuisine_type || ""} onChange={handleChange} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="currency_code">Moneda</Label>
+                <Select
+                  value={restaurant.currency_code || "USD"}
+                  onValueChange={(value) => handleSelectChange("currency_code", value)}
                 >
-                  {step < currentStep ? <CheckCircle className="w-5 h-5" /> : step}
-                </div>
-                {step < 3 && (
-                  <div
-                    className={`w-12 h-1 mx-2 transition-colors ${
-                      step < currentStep ? "bg-gradient-to-r from-orange-500 to-red-500" : "bg-gray-200"
-                    }`}
-                  />
-                )}
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona moneda" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USD">USD - Dólar Estadounidense</SelectItem>
+                    <SelectItem value="MXN">MXN - Peso Mexicano</SelectItem>
+                    <SelectItem value="EUR">EUR - Euro</SelectItem>
+                    {/* Add more currencies as needed */}
+                  </SelectContent>
+                </Select>
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
 
-        {/* Main Card */}
-        <Card className="shadow-2xl border-0">
-          <CardHeader className="pb-6">
-            <CardTitle className="text-xl font-bold text-gray-900">
-              {currentStep === 1 && "Información básica"}
-              {currentStep === 2 && "Ubicación"}
-              {currentStep === 3 && "Detalles adicionales"}
-            </CardTitle>
-          </CardHeader>
-
-          <CardContent>
-            {/* Step 1: Basic Info */}
-            {currentStep === 1 && (
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="restaurantName" className="text-sm font-medium text-gray-700">
-                    Nombre del restaurante *
-                  </Label>
-                  <div className="relative">
-                    <Store className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                    <Input
-                      id="restaurantName"
-                      type="text"
-                      placeholder="El nombre de tu restaurante"
-                      value={formData.restaurantName}
-                      onChange={(e) => handleInputChange("restaurantName", e.target.value)}
-                      className="pl-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="restaurantType" className="text-sm font-medium text-gray-700">
-                    Tipo de restaurante *
-                  </Label>
-                  <Select
-                    value={formData.restaurantType}
-                    onValueChange={(value) => handleInputChange("restaurantType", value)}
-                  >
-                    <SelectTrigger className="h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500">
-                      <SelectValue placeholder="Selecciona el tipo de restaurante" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {restaurantTypes.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {type}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="description" className="text-sm font-medium text-gray-700">
-                    Descripción breve (opcional)
-                  </Label>
-                  <Textarea
-                    id="description"
-                    placeholder="Describe tu restaurante en pocas palabras..."
-                    value={formData.description}
-                    onChange={(e) => handleInputChange("description", e.target.value)}
-                    className="border-gray-200 focus:border-orange-500 focus:ring-orange-500"
-                    rows={3}
-                  />
-                </div>
+            {/* Timezone & Tax Rate */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="timezone">Zona Horaria</Label>
+                <Input
+                  id="timezone"
+                  value={restaurant.timezone || ""}
+                  onChange={handleChange}
+                  placeholder="Ej: America/Mexico_City"
+                />
               </div>
-            )}
-
-            {/* Step 2: Location */}
-            {currentStep === 2 && (
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="address" className="text-sm font-medium text-gray-700">
-                    Dirección *
-                  </Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                    <Input
-                      id="address"
-                      type="text"
-                      placeholder="Calle y número"
-                      value={formData.address}
-                      onChange={(e) => handleInputChange("address", e.target.value)}
-                      className="pl-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="city" className="text-sm font-medium text-gray-700">
-                      Ciudad *
-                    </Label>
-                    <Input
-                      id="city"
-                      type="text"
-                      placeholder="Ciudad"
-                      value={formData.city}
-                      onChange={(e) => handleInputChange("city", e.target.value)}
-                      className="h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="state" className="text-sm font-medium text-gray-700">
-                      Estado *
-                    </Label>
-                    <Input
-                      id="state"
-                      type="text"
-                      placeholder="Estado"
-                      value={formData.state}
-                      onChange={(e) => handleInputChange("state", e.target.value)}
-                      className="h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="zipCode" className="text-sm font-medium text-gray-700">
-                    Código postal (opcional)
-                  </Label>
-                  <Input
-                    id="zipCode"
-                    type="text"
-                    placeholder="12345"
-                    value={formData.zipCode}
-                    onChange={(e) => handleInputChange("zipCode", e.target.value)}
-                    className="h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="default_tax_rate_percentage">Tasa de Impuesto (%)</Label>
+                <Input
+                  id="default_tax_rate_percentage"
+                  type="number"
+                  step="0.01"
+                  value={restaurant.default_tax_rate_percentage || ""}
+                  onChange={handleChange}
+                />
               </div>
-            )}
+            </div>
 
-            {/* Step 3: Additional Details */}
-            {currentStep === 3 && (
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="capacity" className="text-sm font-medium text-gray-700">
-                      Capacidad (personas)
-                    </Label>
-                    <div className="relative">
-                      <Users className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <Input
-                        id="capacity"
-                        type="number"
-                        placeholder="50"
-                        value={formData.capacity}
-                        onChange={(e) => handleInputChange("capacity", e.target.value)}
-                        className="pl-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
-                      />
-                    </div>
-                  </div>
+            {error && <p className="text-red-500 text-sm text-center">{error}</p>}
 
-                  <div className="space-y-2">
-                    <Label htmlFor="openingHours" className="text-sm font-medium text-gray-700">
-                      Horario principal
-                    </Label>
-                    <div className="relative">
-                      <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <Input
-                        id="openingHours"
-                        type="text"
-                        placeholder="9:00 AM - 10:00 PM"
-                        value={formData.openingHours}
-                        onChange={(e) => handleInputChange("openingHours", e.target.value)}
-                        className="pl-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
-                      />
-                    </div>
-                  </div>
+            <Button
+              type="submit"
+              className="w-full h-12 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-medium transition-all duration-200 disabled:opacity-50"
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <div className="flex items-center space-x-2">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Guardando...</span>
                 </div>
-
-                <div className="space-y-3">
-                  <Label className="text-sm font-medium text-gray-700 flex items-center">
-                    <ChefHat className="w-4 h-4 mr-2" />
-                    Especialidades (selecciona las que apliquen)
-                  </Label>
-                  <div className="flex flex-wrap gap-2">
-                    {specialtyOptions.map((specialty) => (
-                      <Badge
-                        key={specialty}
-                        variant={formData.specialties.includes(specialty) ? "default" : "outline"}
-                        className={`cursor-pointer transition-colors ${
-                          formData.specialties.includes(specialty)
-                            ? "bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600"
-                            : "hover:bg-orange-50 hover:border-orange-200"
-                        }`}
-                        onClick={() => handleSpecialtyToggle(specialty)}
-                      >
-                        {specialty}
-                      </Badge>
-                    ))}
-                  </div>
+              ) : saveSuccess ? (
+                <div className="flex items-center space-x-2">
+                  <CheckCircle2 className="h-5 w-5" />
+                  <span>¡Guardado! Redirigiendo...</span>
                 </div>
-              </div>
-            )}
-
-            {/* Navigation Buttons */}
-            <div className="flex justify-between mt-8 pt-6 border-t border-gray-200">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleBack}
-                disabled={currentStep === 1}
-                className="px-6"
-              >
-                Anterior
-              </Button>
-
-              {currentStep < 3 ? (
-                <Button
-                  type="button"
-                  onClick={handleNext}
-                  disabled={!isStepValid()}
-                  className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white px-6"
-                >
-                  Siguiente
-                  <ArrowRight className="ml-2 w-4 h-4" />
-                </Button>
               ) : (
-                <Button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={isLoading}
-                  className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white px-6"
-                >
-                  {isLoading ? (
-                    <div className="flex items-center space-x-2">
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>Configurando...</span>
-                    </div>
-                  ) : (
-                    <>
-                      Completar configuración
-                      <CheckCircle className="ml-2 w-4 h-4" />
-                    </>
-                  )}
-                </Button>
+                "Guardar y Continuar"
               )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Skip option */}
-        <div className="mt-6 text-center">
-          <Link href="/dashboard" className="text-gray-500 hover:text-gray-700 text-sm transition-colors">
-            Saltar por ahora y completar después
-          </Link>
-        </div>
-      </div>
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

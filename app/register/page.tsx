@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Menu, Eye, EyeOff, ArrowLeft, Mail, Lock, User, Phone } from "lucide-react"
 import Link from "next/link"
 import { registerUser } from "@/lib/auth"
+import { isRedirectError } from "next/dist/client/components/redirect" // Import isRedirectError
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
@@ -24,13 +25,22 @@ export default function RegisterPage() {
     const formData = new FormData(e.currentTarget as HTMLFormElement)
     formData.append("acceptTerms", acceptTerms ? "on" : "off") // Manually append checkbox state
 
-    const result = await registerUser(formData)
+    try {
+      const result = await registerUser(formData)
 
-    if (result?.error) {
-      alert(result.error) // Display error message
+      if (result?.error) {
+        alert(result.error) // Display error message
+        setIsLoading(false)
+      }
+    } catch (error) {
+      if (isRedirectError(error)) {
+        // Expected redirect, do nothing as Next.js handles navigation
+        throw error // Re-throw the error to let Next.js handle the redirect
+      }
+      console.error("Unexpected error during registration:", error)
+      alert("Ocurrió un error inesperado. Inténtalo de nuevo.")
       setIsLoading(false)
     }
-    // Redirection is handled by the server action
   }
 
   return (
