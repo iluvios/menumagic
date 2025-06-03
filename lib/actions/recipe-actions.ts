@@ -8,10 +8,22 @@ import {
 } from "@/lib/actions/category-actions"
 import { getRestaurantIdFromSession } from "@/lib/auth"
 
-// Re-exporting getCategoriesByType from category-actions.ts
-// This line itself is not a function, so it doesn't need to be async.
-// The function it re-exports (getCategoriesByType) IS async in category-actions.ts.
-export { getCategoriesByType } from "@/lib/actions/category-actions"
+// Define an interface for the category object
+interface Category {
+  id: number;
+  name: string;
+  type: string;
+  // Add other potential fields if known, e.g., from the SELECT query in category-actions
+}
+
+// Explicitly exporting getCategoriesByType by wrapping the imported action
+export async function getCategoriesByType(type: string, restaurantId?: number): Promise<Category[]> {
+  // We need to know the return type of getCategoriesByTypeAction to correctly type this wrapper
+  // Assuming getCategoriesByTypeAction returns Promise<{ id: number; name: string; type: string; }[] | []>
+  // based on the typical structure observed in category-actions.ts
+  const result = await getCategoriesByTypeAction(type, restaurantId);
+  return result as Category[]; // Cast if necessary, or ensure original function has proper return type
+}
 
 export async function getRecipes() {
   try {
@@ -123,8 +135,8 @@ export async function createRecipe(data: any) {
     // Find or create category
     let categoryId
     if (data.category) {
-      const categoryResult = await getCategoriesByTypeAction("recipe", restaurantId)
-      const existingCategory = categoryResult.find((cat) => cat.name === data.category)
+      const categoryResult = await getCategoriesByTypeAction("recipe", restaurantId) as Category[];
+      const existingCategory = categoryResult.find((cat: Category) => cat.name === data.category)
 
       if (existingCategory) {
         categoryId = existingCategory.id
@@ -197,8 +209,8 @@ export async function updateRecipe(id: number, data: any) {
     // Find or create category if provided
     let categoryId
     if (data.category) {
-      const categoryResult = await getCategoriesByTypeAction("recipe", restaurantId)
-      const existingCategory = categoryResult.find((cat) => cat.name === data.category)
+      const categoryResult = await getCategoriesByTypeAction("recipe", restaurantId) as Category[];
+      const existingCategory = categoryResult.find((cat: Category) => cat.name === data.category)
 
       if (existingCategory) {
         categoryId = existingCategory.id
