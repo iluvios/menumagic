@@ -4,6 +4,7 @@ import { sql } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
 
+// Ensure this import path is correct and the file exists
 export { getCategoriesByType } from "@/lib/actions/category-actions"
 
 // --- Ingredient Actions ---

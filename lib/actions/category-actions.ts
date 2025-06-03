@@ -4,8 +4,6 @@ import { sql } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
 
-// All exported functions in this file MUST be async.
-
 export async function getCategories(restaurantId?: number) {
   try {
     const currentRestaurantId = restaurantId || (await getRestaurantIdFromSession())

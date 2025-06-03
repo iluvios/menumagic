@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { redirect } from "next/navigation"
 import {
   Camera,
   Smartphone,
@@ -17,7 +16,7 @@ import {
 } from "lucide-react"
 
 export default function Home() {
-  redirect("/dashboard")
+  return <MenuMagicLanding />
 }
 
 function MenuMagicLanding() {
@@ -32,8 +31,8 @@ function MenuMagicLanding() {
             </div>
             <span className="text-xl font-bold text-gray-900">MenuMagic</span>
           </div>
-          <Button variant="outline" size="sm">
-            Iniciar Sesión
+          <Button variant="outline" size="sm" asChild>
+            <a href="/login">Iniciar Sesión</a>
           </Button>
         </div>
       </header>
@@ -48,14 +47,14 @@ function MenuMagicLanding() {
                   🎉 Completamente gratis, siempre!
                 </Badge>
                 <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 leading-tight">
-                  Morderniza tu Restaurante,{" "}
+                  Moderniza tu Restaurante,{" "}
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-red-500">
-                    Rapido y Gratis
+                    Rápido y Gratis
                   </span>
                 </h1>
                 <p className="text-xl text-gray-600 leading-relaxed">
-                  Todas las herramientas que tu resturante necesita. Menu fisico y digital. Codigos QR, tarjetas NFC,
-                  pagina web, ordenes en linea y mucho mas!
+                  Todas las herramientas esenciales que tu restaurante necesita, <b>completamente gratis</b>. Menú
+                  digital, códigos QR, carga con IA, y mucho más.
                 </p>
               </div>
 
@@ -63,12 +62,15 @@ function MenuMagicLanding() {
                 <Button
                   size="lg"
                   className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white px-8 py-4 text-lg"
+                  asChild
                 >
-                  Quiero registrar mi restaurante
-                  <ArrowRight className="ml-2 w-5 h-5" />
+                  <a href="/register">
+                    Quiero registrar mi restaurante
+                    <ArrowRight className="ml-2 w-5 h-5" />
+                  </a>
                 </Button>
-                <Button variant="outline" size="lg" className="px-8 py-4 text-lg">
-                  Ver Demo
+                <Button variant="outline" size="lg" className="px-8 py-4 text-lg" asChild>
+                  <a href="/dashboard">Ver Demo</a>
                 </Button>
               </div>
 
@@ -123,6 +125,11 @@ function MenuMagicLanding() {
                   Moderniza la experiencia del cliente con un menú elegante, interactivo y accesible desde cualquier
                   smartphone. Actualiza platillos, precios y descripciones al instante, sin complicaciones.
                 </p>
+                <div className="mt-4 text-center">
+                  <Badge variant="outline" className="text-blue-600 border-blue-200 bg-blue-50">
+                    Gratis
+                  </Badge>
+                </div>
               </CardContent>
             </Card>
 
@@ -160,6 +167,11 @@ function MenuMagicLanding() {
                   Facilita el acceso a tu menú digital con un simple escaneo. Genera códigos únicos para cada mesa o
                   punto de contacto, ofreciendo una interacción sin contacto y eficiente.
                 </p>
+                <div className="mt-4 text-center">
+                  <Badge variant="outline" className="text-purple-600 border-purple-200 bg-purple-50">
+                    Gratis
+                  </Badge>
+                </div>
               </CardContent>
             </Card>
 
@@ -445,8 +457,11 @@ function MenuMagicLanding() {
                   </li>
                 </ul>
 
-                <Button className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white py-3">
-                  Comenzar Gratis
+                <Button
+                  className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white py-3"
+                  asChild
+                >
+                  <a href="/register">Comenzar Gratis</a>
                 </Button>
               </CardContent>
             </Card>
@@ -520,16 +535,20 @@ function MenuMagicLanding() {
               size="lg"
               variant="secondary"
               className="bg-white text-orange-600 hover:bg-gray-100 px-8 py-4 text-lg"
+              asChild
             >
-              ¡Regístrate y Comienza (Es Gratis!)
-              <ArrowRight className="ml-2 w-5 h-5" />
+              <a href="/register">
+                ¡Regístrate y Comienza (Es Gratis!)
+                <ArrowRight className="ml-2 w-5 h-5" />
+              </a>
             </Button>
             <Button
               size="lg"
               variant="outline"
               className="border-white text-white hover:bg-white hover:text-orange-600 px-8 py-4 text-lg"
+              asChild
             >
-              Ver Video Demo
+              <a href="/dashboard">Ver Video Demo</a>
             </Button>
           </div>
 
