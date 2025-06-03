@@ -76,6 +76,7 @@ export default function RegisterPage() {
                   <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <Input
                     id="name"
+                    name="name"
                     type="text"
                     placeholder="Tu nombre completo"
                     className="pl-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
@@ -93,6 +94,7 @@ export default function RegisterPage() {
                   <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <Input
                     id="email"
+                    name="email"
                     type="email"
                     placeholder="tu@restaurante.com"
                     className="pl-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
@@ -110,6 +112,7 @@ export default function RegisterPage() {
                   <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <Input
                     id="phone"
+                    name="phone"
                     type="tel"
                     placeholder="+52 55 1234 5678"
                     className="pl-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
@@ -127,6 +130,7 @@ export default function RegisterPage() {
                   <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <Input
                     id="password"
+                    name="password"
                     type={showPassword ? "text" : "password"}
                     placeholder="Mínimo 8 caracteres"
                     className="pl-10 pr-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
