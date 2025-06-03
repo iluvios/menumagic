@@ -4,8 +4,21 @@ import { sql } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
 
-// Ensure this import path is correct and the file exists
-export { getCategoriesByType } from "@/lib/actions/category-actions"
+// Import the original function with an alias
+import { getCategoriesByType as getCategoriesByTypeAction } from "@/lib/actions/category-actions"
+
+// Define an interface for the category object (similar to recipe-actions.ts)
+interface Category {
+  id: number;
+  name: string;
+  type: string;
+}
+
+// Explicitly exporting getCategoriesByType by wrapping the imported action
+export async function getCategoriesByType(type: string, restaurantId?: number): Promise<Category[]> {
+  const result = await getCategoriesByTypeAction(type, restaurantId);
+  return result as Category[]; // Assuming result is already correctly typed or can be cast
+}
 
 // --- Ingredient Actions ---
 
@@ -110,8 +123,12 @@ export async function updateIngredient(
       throw new Error("Authentication required to update ingredient.")
     }
 
+    // Initialize calculated_storage_unit_cost to undefined.
+    // It will be recalculated if dependent fields (purchase_unit_cost, conversion_factor_purchase_to_storage) are provided in data.
+    // Otherwise, the COALESCE in the SQL query will preserve the existing database value.
+    let calculated_storage_unit_cost: number | undefined = undefined;
+
     // Recalculate calculated_storage_unit_cost if relevant fields are updated
-    let calculated_storage_unit_cost = data.calculated_storage_unit_cost // Use existing if not updated
     if (data.purchase_unit_cost !== undefined || data.conversion_factor_purchase_to_storage !== undefined) {
       const currentIngredient = (
         await sql`SELECT purchase_unit_cost, conversion_factor_purchase_to_storage, cost_per_unit FROM ingredients WHERE id = ${id}`
