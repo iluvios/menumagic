@@ -5,19 +5,19 @@ import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Label } from "@/components/ui/label" // Re-added
+import { Textarea } from "@/components/ui/textarea" // Re-added
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select" // Re-added
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
+  DialogFooter, // Re-added
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip" // Re-added TooltipContent, TooltipTrigger
 import { Progress } from "@/components/ui/progress"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -49,8 +49,9 @@ import {
   SkipForward,
   FileText,
   CheckCircle2,
-  Eye,
+  UtensilsCrossed,
 } from "lucide-react"
+import Link from "next/link" // Re-added
 
 interface DigitalMenu {
   id: number
@@ -559,6 +560,8 @@ export default function DigitalMenuHubPage() {
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleCreateUpdateMenu} className="grid gap-4 py-4">
+                {" "}
+                {/* Restored form */}
                 {!menus.find((m) => m.id === selectedMenu?.id) && <input type="hidden" name="is_new" value="true" />}
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label htmlFor="name" className="text-right">
@@ -591,7 +594,8 @@ export default function DigitalMenuHubPage() {
                     {selectedMenu && menus.find((m) => m.id === selectedMenu.id) ? "Guardar cambios" : "Crear Menú"}
                   </Button>
                 </DialogFooter>
-              </form>
+              </form>{" "}
+              {/* End of restored form */}
             </DialogContent>
           </Dialog>
         </div>
@@ -614,7 +618,7 @@ export default function DigitalMenuHubPage() {
                   <div
                     key={menu.id}
                     className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-all duration-150 ease-in-out
-                                ${selectedMenu?.id === menu.id ? "bg-warm-100 border-warm-400 shadow-md ring-2 ring-warm-400" : "hover:bg-neutral-100 border-transparent border"}`}
+                              ${selectedMenu?.id === menu.id ? "bg-warm-100 border-warm-400 shadow-md ring-2 ring-warm-400" : "hover:bg-neutral-100 border-transparent border"}`}
                     onClick={() => setSelectedMenu(menu)}
                   >
                     <div>
@@ -664,6 +668,19 @@ export default function DigitalMenuHubPage() {
                           <p>Eliminar Menú</p>
                         </TooltipContent>
                       </Tooltip>
+                      {/* Link to Manage Dishes page */}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Link href={`/dashboard/menus/dishes/${menu.id}`} passHref>
+                            <Button variant="ghost" size="icon" className="h-7 w-7">
+                              <UtensilsCrossed className="h-4 w-4 text-neutral-500 hover:text-warm-600" />
+                            </Button>
+                          </Link>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Gestionar Platillos</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
                 ))
@@ -697,7 +714,15 @@ export default function DigitalMenuHubPage() {
                       >
                         <CardContent className="p-3">
                           <div className="aspect-video bg-neutral-100 rounded mb-2 flex items-center justify-center">
-                            <span className="text-xs text-neutral-500">Vista Previa</span>
+                            {template.preview_image_url ? (
+                              <img
+                                src={template.preview_image_url || "/placeholder.svg"}
+                                alt={`Preview of ${template.name}`}
+                                className="w-full h-full object-cover rounded"
+                              />
+                            ) : (
+                              <span className="text-xs text-neutral-500">Vista Previa</span>
+                            )}
                           </div>
                           <h4 className="font-medium text-sm">{template.name}</h4>
                           <p className="text-xs text-neutral-500 truncate">{template.description}</p>
@@ -707,9 +732,9 @@ export default function DigitalMenuHubPage() {
                   </div>
                   {selectedTemplateId && (
                     <div className="mt-4 flex justify-between items-center">
-                      <Button variant="outline" onClick={() => window.open(`/menu/${selectedMenu.id}`, "_blank")}>
-                        <Eye className="mr-2 h-4 w-4" />
-                        Vista Previa del Menú
+                      <Button variant="outline" size="sm" className="hidden sm:flex">
+                        <QrCode className="mr-2 h-4 w-4" />
+                        Generar QR
                       </Button>
                       <Button
                         onClick={() => handleApplyTemplate(selectedTemplateId)}

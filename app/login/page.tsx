@@ -1,44 +1,17 @@
 "use client"
-
-import type React from "react"
+import { Menu } from "lucide-react"
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Menu, Eye, EyeOff, ArrowLeft, Mail, Lock } from "lucide-react"
+import { Eye, EyeOff, ArrowLeft, Mail, Lock } from "lucide-react"
 import Link from "next/link"
 import { loginUser } from "@/lib/auth"
-import { isRedirectError } from "next/dist/client/components/redirect" // Import isRedirectError
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-
-    const formData = new FormData(e.currentTarget as HTMLFormElement)
-
-    try {
-      const result = await loginUser(formData)
-
-      if (result?.error) {
-        alert(result.error) // Display error message
-        setIsLoading(false)
-      }
-    } catch (error) {
-      if (isRedirectError(error)) {
-        // Expected redirect, do nothing as Next.js handles navigation
-        throw error // Re-throw the error to let Next.js handle the redirect
-      }
-      console.error("Unexpected error during login:", error)
-      alert("Ocurrió un error inesperado. Inténtalo de nuevo.")
-      setIsLoading(false)
-    }
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 flex items-center justify-center p-4">
@@ -62,18 +35,18 @@ export default function LoginPage() {
             </div>
             <h1 className="text-3xl font-bold text-gray-900">MenuMagic</h1>
           </div>
-          <p className="text-gray-600">Accede a tu cuenta</p>
+          <p className="text-gray-600">Inicia sesión en tu cuenta</p>
         </div>
 
         {/* Login Card */}
         <Card className="shadow-2xl border-0">
           <CardHeader className="space-y-1 pb-6">
-            <CardTitle className="text-2xl font-bold text-center text-gray-900">Bienvenido de nuevo</CardTitle>
-            <p className="text-center text-gray-600">Inicia sesión para continuar</p>
+            <CardTitle className="text-2xl font-bold text-center text-gray-900">Bienvenido de vuelta</CardTitle>
+            <p className="text-center text-gray-600">Accede a tu panel de control</p>
           </CardHeader>
 
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form action={loginUser} className="space-y-5">
               {/* Email Field */}
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-sm font-medium text-gray-700">
@@ -103,7 +76,7 @@ export default function LoginPage() {
                     id="password"
                     name="password"
                     type={showPassword ? "text" : "password"}
-                    placeholder="Ingresa tu contraseña"
+                    placeholder="Tu contraseña"
                     className="pl-10 pr-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
                     required
                   />
@@ -130,17 +103,9 @@ export default function LoginPage() {
               {/* Login Button */}
               <Button
                 type="submit"
-                disabled={isLoading}
-                className="w-full h-12 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-medium transition-all duration-200 disabled:opacity-50"
+                className="w-full h-12 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-medium transition-all duration-200"
               >
-                {isLoading ? (
-                  <div className="flex items-center space-x-2">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>Iniciando sesión...</span>
-                  </div>
-                ) : (
-                  "Iniciar Sesión"
-                )}
+                Iniciar Sesión
               </Button>
 
               {/* Divider */}
