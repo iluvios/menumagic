@@ -105,9 +105,9 @@ export async function registerUser(formData: FormData) {
     const hashedPassword = await bcrypt.hash(password, 10)
 
     // Start a transaction
-    const result = await sql.begin(async (sql) => {
+    const result = await sql.transaction(async (tx) => {
       // 1. Create the user
-      const newUser = await sql`
+      const newUser = await tx`
         INSERT INTO users (name, email, password_hash)
         VALUES (${name}, ${email}, ${hashedPassword})
         RETURNING id
@@ -115,7 +115,7 @@ export async function registerUser(formData: FormData) {
       const userId = newUser[0].id
 
       // 2. Create a default restaurant for the new user
-      const newRestaurant = await sql`
+      const newRestaurant = await tx`
         INSERT INTO restaurants (name, owner_user_id, phone, email)
         VALUES (${name}'s Restaurant', ${userId}, ${phone}, ${email})
         RETURNING id
@@ -123,7 +123,7 @@ export async function registerUser(formData: FormData) {
       const restaurantId = newRestaurant[0].id
 
       // 3. Link the restaurant to the user
-      await sql`
+      await tx`
         UPDATE users
         SET restaurant_id = ${restaurantId}
         WHERE id = ${userId}
