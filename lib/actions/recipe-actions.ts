@@ -1,6 +1,6 @@
 "use server"
 
-import { sql } from "@vercel/postgres"
+import { sql } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
 import { getReusableMenuItems } from "./reusable-menu-item-actions" // Corrected import path
@@ -9,17 +9,13 @@ interface Recipe {
   id: number
   name: string
   description: string
+  instructions: string
+  prep_time_minutes: number
+  cook_time_minutes: number
+  servings: number
   category_id: number
   category_name?: string
-}
-
-interface RecipeIngredient {
-  id: number
-  recipe_id: number
-  ingredient_id: number
-  ingredient_name: string
-  quantity: number
-  unit: string
+  cost_per_serving?: number
 }
 
 interface ReusableDishIngredient {
@@ -35,27 +31,22 @@ interface ReusableDishIngredient {
 }
 
 // Legacy recipe functions (keeping for backward compatibility)
-export async function getRecipes(): Promise<Recipe[]> {
+export async function getRecipes() {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
       return []
     }
-    const { rows } = await sql<Recipe>`
-      SELECT
-        r.id,
-        r.name,
-        r.description,
-        r.category_id,
-        gc.name AS category_name
+    const result = await sql`
+      SELECT r.id, r.name, r.description, r.instructions, r.prep_time_minutes, r.cook_time_minutes, r.servings, r.category_id, c.name as category_name
       FROM recipes r
-      JOIN global_categories gc ON r.category_id = gc.id
+      LEFT JOIN categories c ON r.category_id = c.id
       WHERE r.restaurant_id = ${restaurantId}
-      ORDER BY r.created_at DESC;
+      ORDER BY r.created_at DESC
     `
-    return rows
+    return result || []
   } catch (error) {
-    console.error("Database Error:", error)
+    console.error("Error fetching recipes:", error)
     throw new Error("Failed to fetch recipes.")
   }
 }
@@ -66,167 +57,83 @@ export async function getRecipeById(id: number): Promise<Recipe | null> {
     if (!restaurantId) {
       return null
     }
-    const { rows } = await sql<Recipe>`
-      SELECT
-        r.id,
-        r.name,
-        r.description,
-        r.category_id,
-        gc.name AS category_name
+    const result = await sql`
+      SELECT r.id, r.name, r.description, r.instructions, r.prep_time_minutes, r.cook_time_minutes, r.servings, r.category_id, c.name as category_name
       FROM recipes r
-      JOIN global_categories gc ON r.category_id = gc.id
-      WHERE r.id = ${id} AND r.restaurant_id = ${restaurantId};
+      LEFT JOIN categories c ON r.category_id = c.id
+      WHERE r.id = ${id} AND r.restaurant_id = ${restaurantId}
     `
-    return rows[0] || null
+    return result[0] || null
   } catch (error) {
-    console.error("Database Error:", error)
-    throw new Error(`Failed to fetch recipe with ID ${id}.`)
+    console.error(`Error fetching recipe with ID ${id}:`, error)
+    throw new Error("Failed to fetch recipe.")
   }
 }
 
-export async function getIngredientsForRecipe(recipeId: number): Promise<RecipeIngredient[]> {
-  try {
-    const { rows } = await sql<RecipeIngredient>`
-      SELECT
-        ri.id,
-        ri.recipe_id,
-        ri.ingredient_id,
-        i.name AS ingredient_name,
-        ri.quantity,
-        ri.unit
-      FROM recipe_ingredients ri
-      JOIN ingredients i ON ri.ingredient_id = i.id
-      WHERE ri.recipe_id = ${recipeId}
-      ORDER BY i.name;
-    `
-    return rows
-  } catch (error) {
-    console.error("Database Error:", error)
-    throw new Error("Failed to fetch ingredients for recipe.")
-  }
-}
-
-export async function createRecipe(
-  recipeData: {
-    name: string
-    description: string
-    category_id: number
-  },
-  ingredients: { ingredient_id: number; quantity: number; unit: string }[],
-): Promise<Recipe> {
+export async function createRecipe(data: Omit<Recipe, "id" | "category_name" | "cost_per_serving">) {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
       throw new Error("Authentication required to create recipe.")
     }
-    const { rows } = await sql.begin(async (db) => {
-      const { rows: recipeRows } = await db<Recipe>`
-        INSERT INTO recipes (name, description, category_id, restaurant_id)
-        VALUES (${recipeData.name}, ${recipeData.description}, ${recipeData.category_id}, ${restaurantId})
-        RETURNING id, name, description, category_id;
-      `
-      const newRecipeId = recipeRows[0].id
-
-      for (const ingredient of ingredients) {
-        await db`
-          INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit)
-          VALUES (${newRecipeId}, ${ingredient.ingredient_id}, ${ingredient.quantity}, ${ingredient.unit});
-        `
-      }
-      return recipeRows
-    })
-
+    const result = await sql`
+      INSERT INTO recipes (name, description, instructions, prep_time_minutes, cook_time_minutes, servings, category_id, restaurant_id)
+      VALUES (${data.name}, ${data.description}, ${data.instructions}, ${data.prep_time_minutes}, ${data.cook_time_minutes}, ${data.servings}, ${data.category_id}, ${restaurantId})
+      RETURNING id, name
+    `
     revalidatePath("/dashboard/operations-hub/recipes")
-    return rows[0]
+    return result[0]
   } catch (error) {
-    console.error("Database Error:", error)
+    console.error("Error creating recipe:", error)
     throw new Error("Failed to create recipe.")
   }
 }
 
 export async function updateRecipe(
   id: number,
-  recipeData: {
-    name?: string
-    description?: string
-    category_id?: number
-  },
-  ingredients: { ingredient_id: number; quantity: number; unit: string }[],
-): Promise<Recipe> {
+  data: Partial<Omit<Recipe, "id" | "category_name" | "cost_per_serving">>,
+) {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
       throw new Error("Authentication required to update recipe.")
     }
-    const { rows } = await sql.begin(async (db) => {
-      const fields = []
-      const values = []
-      let paramIndex = 1
-
-      if (recipeData.name !== undefined) {
-        fields.push(`name = $${paramIndex++}`)
-        values.push(recipeData.name)
-      }
-      if (recipeData.description !== undefined) {
-        fields.push(`description = $${paramIndex++}`)
-        values.push(recipeData.description)
-      }
-      if (recipeData.category_id !== undefined) {
-        fields.push(`category_id = $${paramIndex++}`)
-        values.push(recipeData.category_id)
-      }
-
-      if (fields.length > 0) {
-        values.push(id) // Add the ID for the WHERE clause
-        const query = `
-          UPDATE recipes
-          SET ${fields.join(", ")}
-          WHERE id = $${paramIndex} AND restaurant_id = ${restaurantId}
-          RETURNING id, name, description, category_id;
-        `
-        await db.query(query, values)
-      }
-
-      // Update ingredients: delete existing and insert new ones
-      await db`DELETE FROM recipe_ingredients WHERE recipe_id = ${id};`
-      for (const ingredient of ingredients) {
-        await db`
-          INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit)
-          VALUES (${id}, ${ingredient.ingredient_id}, ${ingredient.quantity}, ${ingredient.unit});
-        `
-      }
-
-      const { rows: updatedRecipeRows } = await db<Recipe>`
-        SELECT id, name, description, category_id FROM recipes WHERE id = ${id} AND restaurant_id = ${restaurantId};
-      `
-      return updatedRecipeRows
-    })
-
-    if (rows.length === 0) {
-      throw new Error(`Recipe with ID ${id} not found.`)
-    }
-
+    const result = await sql`
+      UPDATE recipes
+      SET
+        name = COALESCE(${data.name}, name),
+        description = COALESCE(${data.description}, description),
+        instructions = COALESCE(${data.instructions}, instructions),
+        prep_time_minutes = COALESCE(${data.prep_time_minutes}, prep_time_minutes),
+        cook_time_minutes = COALESCE(${data.cook_time_minutes}, cook_time_minutes),
+        servings = COALESCE(${data.servings}, servings),
+        category_id = COALESCE(${data.category_id}, category_id),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${id} AND restaurant_id = ${restaurantId}
+      RETURNING id, name
+    `
     revalidatePath("/dashboard/operations-hub/recipes")
-    return rows[0]
+    return result[0]
   } catch (error) {
-    console.error("Database Error:", error)
+    console.error("Error updating recipe:", error)
     throw new Error("Failed to update recipe.")
   }
 }
 
-export async function deleteRecipe(id: number): Promise<void> {
+export async function deleteRecipe(id: number) {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
       throw new Error("Authentication required to delete recipe.")
     }
-    await sql.begin(async (db) => {
-      await db`DELETE FROM recipe_ingredients WHERE recipe_id = ${id};`
-      await db`DELETE FROM recipes WHERE id = ${id} AND restaurant_id = ${restaurantId};`
-    })
+    await sql`
+      DELETE FROM recipes
+      WHERE id = ${id} AND restaurant_id = ${restaurantId}
+    `
     revalidatePath("/dashboard/operations-hub/recipes")
+    return { success: true }
   } catch (error) {
-    console.error("Database Error:", error)
+    console.error("Error deleting recipe:", error)
     throw new Error("Failed to delete recipe.")
   }
 }
@@ -237,12 +144,12 @@ export async function getCategoriesByType(type: string) {
     if (!restaurantId) {
       return []
     }
-    const { rows } = await sql`
+    const result = await sql`
       SELECT id, name FROM categories
       WHERE restaurant_id = ${restaurantId} AND type = ${type}
       ORDER BY name ASC
     `
-    return rows || []
+    return result || []
   } catch (error) {
     console.error(`Error fetching categories of type ${type}:`, error)
     throw new Error("Failed to fetch categories.")
@@ -270,7 +177,7 @@ export async function getIngredientsForReusableDish(reusableMenuItemId: number):
       throw new Error("Platillo no encontrado o no pertenece a este restaurante.")
     }
 
-    const { rows } = await sql<ReusableDishIngredient>`
+    const result = await sql`
       SELECT
         rdi.id,
         rdi.reusable_menu_item_id,
@@ -287,7 +194,7 @@ export async function getIngredientsForReusableDish(reusableMenuItemId: number):
       WHERE rdi.reusable_menu_item_id = ${reusableMenuItemId}
       ORDER BY i.name ASC
     `
-    return rows || []
+    return result || []
   } catch (error) {
     console.error(`Error fetching ingredients for reusable dish ${reusableMenuItemId}:`, error)
     throw new Error("No se pudieron obtener los ingredientes para este platillo.")
@@ -333,7 +240,7 @@ export async function addReusableDishIngredient(data: {
       throw new Error("Este ingrediente ya está en la receta. Actualiza la cantidad en lugar de añadirlo de nuevo.")
     }
 
-    const { rows } = await sql`
+    const result = await sql`
       INSERT INTO reusable_dish_ingredients (
         reusable_menu_item_id, ingredient_id, quantity_used, unit_used
       )
@@ -344,7 +251,7 @@ export async function addReusableDishIngredient(data: {
     `
     revalidatePath("/dashboard/menu-studio/digital-menu")
     revalidatePath("/dashboard/operations-hub/recipes")
-    return rows[0]
+    return result[0]
   } catch (error: any) {
     console.error("Error adding ingredient to reusable dish:", error)
     throw error
@@ -375,7 +282,7 @@ export async function updateReusableDishIngredient(
       throw new Error("Ingrediente no encontrado o no pertenece a este restaurante.")
     }
 
-    const { rows } = await sql`
+    const result = await sql`
       UPDATE reusable_dish_ingredients
       SET 
         quantity_used = COALESCE(${data.quantity_used}, quantity_used),
@@ -386,7 +293,7 @@ export async function updateReusableDishIngredient(
     `
     revalidatePath("/dashboard/menu-studio/digital-menu")
     revalidatePath("/dashboard/operations-hub/recipes")
-    return rows[0]
+    return result[0]
   } catch (error) {
     console.error(`Error updating reusable dish ingredient ${id}:`, error)
     throw error
