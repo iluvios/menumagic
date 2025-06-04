@@ -1,10 +1,14 @@
 import { neon } from "@neondatabase/serverless"
 
+// Ensure DATABASE_URL is available
 if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is not set")
+  throw new Error("DATABASE_URL is not set in environment variables.")
 }
 
-export const sql = neon(process.env.DATABASE_URL)
+// Create a singleton instance of the Neon client
+const sql = neon(process.env.DATABASE_URL)
+
+export { sql }
 
 export function formatCurrency(amount: number, currencyCode = "USD"): string {
   return new Intl.NumberFormat("en-US", {
