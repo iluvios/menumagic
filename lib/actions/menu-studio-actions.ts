@@ -349,66 +349,84 @@ export async function deleteMenuItem(id: number) {
       throw new Error("Authentication required to delete menu item.")
     }
 
-    const itemToDelete = await sql`
-      SELECT mi.image_url, mi.digital_menu_id
-      FROM menu_items mi
+    // Verify that the menu item belongs to the current restaurant
+    const itemCheck = await sql`
+      SELECT mi.id, mi.image_url FROM menu_items mi
       JOIN digital_menus dm ON mi.digital_menu_id = dm.id
       WHERE mi.id = ${id} AND dm.restaurant_id = ${restaurantId}
     `
-    if (itemToDelete.length === 0) {
-      throw new Error("Menu item not found or does not belong to this restaurant.")
+    if (itemCheck.length === 0) {
+      throw new Error("Menu item not found or does not belong to your restaurant.")
+    }
+
+    // Delete image from blob storage if it exists
+    if (itemCheck[0].image_url) {
+      await deleteImageFromBlob(itemCheck[0].image_url)
     }
 
     await sql`
       DELETE FROM menu_items
       WHERE id = ${id}
     `
-    if (itemToDelete[0].image_url) {
-      await deleteImageFromBlob(itemToDelete[0].image_url)
-    }
-
-    revalidatePath(`/dashboard/menu-studio/digital-menu`)
-    revalidatePath(`/dashboard/menus/dishes/${itemToDelete[0].digital_menu_id}`)
+    revalidatePath("/dashboard/menu-studio/digital-menu")
     return { success: true }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error deleting menu item:", error)
-    throw new Error("Failed to delete menu item.")
+    throw new Error(error.message || "Failed to delete menu item.")
   }
 }
 
-// AI Onboarding Mock Actions
+// AI Menu Upload Action
 export async function mockAiMenuUpload(file: File, digitalMenuId: number) {
-  console.log(`Mock AI processing file: ${file.name} for menu ID: ${digitalMenuId}`)
-  await new Promise((resolve) => setTimeout(resolve, 3000))
+  console.log(`[mockAiMenuUpload] Received file: ${file.name} for menu ID: ${digitalMenuId}`);
 
-  const mockItems = [
-    {
-      id: 1,
-      name: "Pizza Margherita",
-      description: "Clásica pizza con tomate, mozzarella fresca y albahabaya.",
-      price: 12.5,
-      image_url: "/placeholder.svg?height=120&width=120",
-      menu_category_id: 1,
-    },
-    {
-      id: 2,
-      name: "Ensalada César",
-      description: "Lechuga romana, crutones, queso parmesano y aderezo César.",
-      price: 8.0,
-      image_url: "/placeholder.svg?height=120&width=120",
-      menu_category_id: 2,
-    },
-    {
-      id: 3,
-      name: "Tiramisú",
-      description: "Postre italiano con capas de bizcochos, café, mascarpone y cacao.",
-      price: 6.0,
-      image_url: "/placeholder.svg?height=120&width=120",
-      menu_category_id: 3,
-    },
-  ]
+  // Simulate AI processing delay (e.g., 2-5 seconds)
+  await new Promise(resolve => setTimeout(resolve, Math.random() * 3000 + 2000));
 
-  return mockItems
+  // Mocked AI-extracted items
+  // In a real scenario, this data would come from an AI service
+  // and you'd likely want to parse the file content.
+  const extractedItems = [
+    {
+      id: 0, // Temporary ID, real ID will be assigned on creation
+      name: "Tacos al Pastor (AI)",
+      description: "Deliciosos tacos de cerdo marinado con achiote, servidos con piña, cebolla y cilantro.",
+      price: Math.round((Math.random() * 10 + 10) * 100) / 100, // Random price between 10-20
+      menu_category_id: 1, // Placeholder category ID
+      category_name: "Platos Fuertes",
+      ai_extracted: true, // Flag to indicate it's from AI
+    },
+    {
+      id: 0,
+      name: "Guacamole Fresco (AI)",
+      description: "Aguacate fresco machacado con cebolla, tomate, cilantro y un toque de limón.",
+      price: Math.round((Math.random() * 5 + 5) * 100) / 100, // Random price between 5-10
+      menu_category_id: 2, // Placeholder category ID
+      category_name: "Entradas",
+      ai_extracted: true,
+    },
+    {
+      id: 0,
+      name: "Horchata Casera (AI)",
+      description: "Bebida refrescante de arroz con canela y vainilla.",
+      price: Math.round((Math.random() * 3 + 2) * 100) / 100, // Random price between 2-5
+      menu_category_id: 3, // Placeholder category ID
+      category_name: "Bebidas",
+      ai_extracted: true,
+    },
+    {
+      id: 0,
+      name: "Sopa de Tortilla (AI)",
+      description: "Caldo de tomate con pollo deshebrado, tiras de tortilla frita, aguacate, queso y crema.",
+      price: Math.round((Math.random() * 8 + 7) * 100) / 100, // Random price between 7-15
+      menu_category_id: 1, // Placeholder category ID
+      category_name: "Platos Fuertes",
+      ai_extracted: true,
+    },
+  ];
+
+  console.log(`[mockAiMenuUpload] Returning ${extractedItems.length} mock items.`);
+  return extractedItems;
 }
 
 // Menu Template Actions
