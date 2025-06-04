@@ -1,21 +1,24 @@
-"use server"
+// This file re-exports all actions related to the menu studio for easier import management.
 
-// Re-export all actions from atomized files
 export {
   getDigitalMenus,
-  getDigitalMenuWithTemplate,
+  getDigitalMenuById,
+  getDigitalMenuWithTemplate, // Added missing export
   createDigitalMenu,
   updateDigitalMenu,
   deleteDigitalMenu,
   uploadQrCodeForDigitalMenu,
+  getMenuItemsByMenuId,
+  getMenuCategoriesForDigitalMenu,
+  applyTemplateToMenu,
 } from "./digital-menu-actions"
 
 export {
-  getMenuItemsByMenuId,
   createMenuItem,
   updateMenuItem,
   deleteMenuItem,
-  updateMenuItemOrder,
+  reorderMenuItems,
+  updateMenuItemOrder, // Added missing export
 } from "./menu-item-actions"
 
 export {
@@ -25,32 +28,35 @@ export {
   deleteReusableMenuItem,
 } from "./reusable-menu-item-actions"
 
-export { mockAiMenuUpload, processMenuWithAI } from "./ai-menu-actions"
+export {
+  mockAiMenuUpload, // Renamed from processMenuImage to match expected export
+  processMenuWithAI,
+} from "./ai-menu-actions"
 
-export { getMenuTemplates, getMenuTemplateById, applyTemplateToMenu } from "./menu-template-actions"
+export {
+  getMenuTemplates,
+  createMenuTemplate,
+  updateMenuTemplate,
+  deleteMenuTemplate,
+} from "./menu-template-actions"
 
 export {
   getAllGlobalCategories,
   getCategories, // Alias for getAllGlobalCategories
-  getCategoriesByType,
-  getMenuCategoriesForDigitalMenu,
-  createCategory,
+  createCategory, // Renamed from createGlobalCategory
+  updateCategory, // Renamed from updateGlobalCategory
+  deleteCategory, // Renamed from deleteGlobalCategory
+  reorderGlobalCategories,
   addCategoryToDigitalMenu,
   removeCategoryFromDigitalMenu,
-  updateCategory,
-  updateDigitalMenuCategoryOrder,
-  deleteCategory,
+  reorderDigitalMenuCategories,
 } from "./category-actions"
 
 export {
   getRecipes,
   getRecipeById,
+  getIngredientsForRecipe,
   createRecipe,
   updateRecipe,
   deleteRecipe,
-  getReusableMenuItemsForRecipesPage,
-  getIngredientsForReusableDish,
-  addReusableDishIngredient,
-  updateReusableDishIngredient,
-  removeReusableDishIngredient,
 } from "./recipe-actions"
