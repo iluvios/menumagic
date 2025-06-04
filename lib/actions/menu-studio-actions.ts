@@ -61,6 +61,7 @@ import {
   createCategory as _createCategory,
   updateCategory as _updateCategory,
   deleteCategory as _deleteCategory,
+  getMenuCategoriesForDigitalMenu as _getMenuCategoriesForDigitalMenu,
 } from "./category-actions"
 
 // Export from category-actions.ts
@@ -68,6 +69,7 @@ export const getCategories = _getCategories
 export const createCategory = _createCategory
 export const updateCategory = _updateCategory
 export const deleteCategory = _deleteCategory
+export const getMenuCategoriesForDigitalMenu = _getMenuCategoriesForDigitalMenu
 
 // Import from template-actions.ts
 import {
