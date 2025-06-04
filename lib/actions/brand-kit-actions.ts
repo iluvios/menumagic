@@ -2,75 +2,102 @@
 
 import { sql } from "@/lib/db"
 import { revalidatePath } from "next/cache"
+import { getRestaurantIdFromSession } from "@/lib/auth"
+import { put, del } from "@vercel/blob"
 
-// --- Brand Kit Actions ---
+// Helper to upload image to Vercel Blob - RENAMED and EXPORTED
+export async function uploadBrandAsset(file: File | undefined | null, folder: string) {
+  if (!file) return null // No file provided, return null
+  if (file.size === 0) return null // Empty file, return null
 
-export async function getBrandKit() {
+  const filename = `${folder}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, "_")}`
+  const { url } = await put(filename, file, { access: "public" })
+  return url
+}
+
+// Helper to delete image from Vercel Blob - RENAMED and EXPORTED
+export async function deleteBrandAsset(url: string | undefined | null) {
+  if (!url) return
   try {
-    // TODO: Filter by restaurant_id once authentication is implemented
-    const brandKitResult = await sql`
-      SELECT id, logo_url, primary_color_hex, secondary_colors_json_array, font_family_main, font_family_secondary
-      FROM brand_kits
-      LIMIT 1
-    `
-
-    const assetsResult = await sql`
-      SELECT id, asset_name, asset_url, asset_type
-      FROM brand_assets
-      WHERE brand_kit_id = ${brandKitResult[0]?.id || null}
-      ORDER BY created_at DESC
-    `
-
-    if (brandKitResult.length === 0) {
-      // If no brand kit exists, create a default one
-      const newBrandKit = await sql`
-        INSERT INTO brand_kits (logo_url, primary_color_hex, font_family_main, font_family_secondary)
-        VALUES ('/placeholder.svg?height=100&width=100', '#F59E0B', 'Inter', 'Lora')
-        RETURNING id, logo_url, primary_color_hex, secondary_colors_json_array, font_family_main, font_family_secondary
-      `
-      return { brandKit: newBrandKit[0], assets: [] }
-    }
-
-    return { brandKit: brandKitResult[0], assets: assetsResult || [] }
+    await del(url)
   } catch (error) {
-    console.error("Error fetching brand kit:", error)
-    return { brandKit: {}, assets: [] }
+    console.error("Error deleting blob:", error)
+    // Don't throw, just log, as it shouldn't block the main operation
   }
 }
 
-export async function updateBrandKit(
-  id: number | undefined,
-  data: {
-    logo_url?: string
-    primary_color_hex?: string
-    secondary_colors_json_array?: string[]
-    font_family_main?: string
-    font_family_secondary?: string
-  },
-) {
+// --- Brand Kit Actions ---
+
+// Modified to accept restaurantId for public access
+export async function getBrandKit(restaurantId?: number) {
+  let targetRestaurantId = restaurantId
+  if (!targetRestaurantId) {
+    // If no restaurantId is provided, try to get it from session (for dashboard use)
+    const sessionRestaurantId = await getRestaurantIdFromSession()
+    if (sessionRestaurantId) {
+      targetRestaurantId = sessionRestaurantId
+    }
+  }
+
+  if (!targetRestaurantId) {
+    console.warn("No restaurant ID provided or found in session for getBrandKit.")
+    return { brandKit: null }
+  }
+
   try {
-    if (!id) {
-      // If no ID, try to create one (should ideally be handled by getBrandKit)
-      const newBrandKit = await sql`
-        INSERT INTO brand_kits (logo_url, primary_color_hex, secondary_colors_json_array, font_family_main, font_family_secondary)
-        VALUES (
-          ${data.logo_url || "/placeholder.svg?height=100&width=100"}, 
-          ${data.primary_color_hex || "#F59E0B"}, 
-          ${JSON.stringify(data.secondary_colors_json_array || [])}, 
-          ${data.font_family_main || "Inter"}, 
-          ${data.font_family_secondary || "Lora"}
-        )
-        RETURNING id
-      `
-      id = newBrandKit[0].id
+    const result = await sql`
+      SELECT 
+        id, restaurant_id, logo_url, primary_color_hex, 
+        secondary_colors_json_array, font_family_main, font_family_secondary
+      FROM brand_kits
+      WHERE restaurant_id = ${targetRestaurantId}
+    `
+    return { brandKit: result[0] || null }
+  } catch (error) {
+    console.error("Error fetching brand kit:", error)
+    return { brandKit: null }
+  }
+}
+
+export async function updateBrandKit(id: number, data: any, logoFile?: File | null) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required to update brand kit.")
+    }
+
+    // Verify brand kit belongs to the restaurant
+    const brandKitCheck = await sql`
+      SELECT id FROM brand_kits WHERE id = ${id} AND restaurant_id = ${restaurantId}
+    `
+    if (brandKitCheck.length === 0) {
+      throw new Error("Brand kit not found or does not belong to this restaurant.")
+    }
+
+    let logoUrlToUpdate: string | undefined | null = undefined
+    const currentBrandKit = await sql`SELECT logo_url FROM brand_kits WHERE id = ${id}`
+    const existingLogoUrl = currentBrandKit[0]?.logo_url
+
+    if (logoFile === null) {
+      // Explicitly set to null (user removed logo)
+      logoUrlToUpdate = null
+      if (existingLogoUrl) {
+        await deleteBrandAsset(existingLogoUrl) // Use renamed function
+      }
+    } else if (logoFile instanceof File) {
+      // New file provided (user uploaded new logo)
+      logoUrlToUpdate = await uploadBrandAsset(logoFile, "brand-logos") // Use renamed function
+      if (existingLogoUrl) {
+        await deleteBrandAsset(existingLogoUrl) // Delete old logo
+      }
     }
 
     await sql`
       UPDATE brand_kits
       SET 
-        logo_url = COALESCE(${data.logo_url}, logo_url),
+        logo_url = COALESCE(${logoUrlToUpdate}, logo_url),
         primary_color_hex = COALESCE(${data.primary_color_hex}, primary_color_hex),
-        secondary_colors_json_array = COALESCE(${JSON.stringify(data.secondary_colors_json_array || [])}, secondary_colors_json_array),
+        secondary_colors_json_array = COALESCE(${JSON.stringify(data.secondary_colors_json_array)}, secondary_colors_json_array),
         font_family_main = COALESCE(${data.font_family_main}, font_family_main),
         font_family_secondary = COALESCE(${data.font_family_secondary}, font_family_secondary),
         updated_at = CURRENT_TIMESTAMP
@@ -80,53 +107,44 @@ export async function updateBrandKit(
     return { success: true }
   } catch (error) {
     console.error("Error updating brand kit:", error)
-    return { success: false, error: "Failed to update brand kit" }
+    throw new Error("Failed to update brand kit.")
   }
 }
 
-// --- Brand Assets Actions ---
-
-export async function uploadBrandAsset(
-  brandKitId: number | undefined,
-  data: { asset_name: string; asset_url: string; asset_type: string },
-) {
+export async function createBrandKit(data: any, logoFile?: File) {
   try {
-    if (!brandKitId) {
-      // Attempt to get or create a brand kit if ID is missing
-      const existingBrandKit = await getBrandKit()
-      brandKitId = existingBrandKit.brandKit?.id
-      if (!brandKitId) {
-        const newBrandKit = await sql`
-          INSERT INTO brand_kits (logo_url, primary_color_hex, font_family_main, font_family_secondary)
-          VALUES ('/placeholder.svg?height=100&width=100', '#F59E0B', 'Inter', 'Lora')
-          RETURNING id
-        `
-        brandKitId = newBrandKit[0].id
-      }
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required to create brand kit.")
+    }
+
+    // Check if a brand kit already exists for this restaurant
+    const existingBrandKit = await sql`
+      SELECT id FROM brand_kits WHERE restaurant_id = ${restaurantId}
+    `
+    if (existingBrandKit.length > 0) {
+      throw new Error("A brand kit already exists for this restaurant. Please update it instead.")
+    }
+
+    let logoUrl: string | null = null
+    if (logoFile) {
+      logoUrl = await uploadBrandAsset(logoFile, "brand-logos") // Use renamed function
     }
 
     await sql`
-      INSERT INTO brand_assets (brand_kit_id, asset_name, asset_url, asset_type)
-      VALUES (${brandKitId}, ${data.asset_name}, ${data.asset_url}, ${data.asset_type})
+      INSERT INTO brand_kits (
+        restaurant_id, logo_url, primary_color_hex, 
+        secondary_colors_json_array, font_family_main, font_family_secondary
+      )
+      VALUES (
+        ${restaurantId}, ${logoUrl}, ${data.primary_color_hex}, 
+        ${JSON.stringify(data.secondary_colors_json_array || [])}, ${data.font_family_main}, ${data.font_family_secondary}
+      )
     `
     revalidatePath("/dashboard/menu-studio/brand-kit")
     return { success: true }
   } catch (error) {
-    console.error("Error uploading brand asset:", error)
-    return { success: false, error: "Failed to upload brand asset" }
-  }
-}
-
-export async function deleteBrandAsset(id: number) {
-  try {
-    await sql`
-      DELETE FROM brand_assets
-      WHERE id = ${id}
-    `
-    revalidatePath("/dashboard/menu-studio/brand-kit")
-    return { success: true }
-  } catch (error) {
-    console.error("Error deleting brand asset:", error)
-    return { success: false, error: "Failed to delete brand asset" }
+    console.error("Error creating brand kit:", error)
+    throw new Error("Failed to create brand kit.")
   }
 }

@@ -4,66 +4,114 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%; /* neutral-50 */
-    --foreground: 222.2 47.4% 11.2%; /* neutral-900 */
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
 
-    --muted: 210 40% 96.1%; /* neutral-100 */
-    --muted-foreground: 215.4 16.3% 46.9%; /* neutral-500 */
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
 
-    --popover: 0 0% 100%; /* neutral-50 */
-    --popover-foreground: 222.2 47.4% 11.2%; /* neutral-900 */
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
 
-    --card: 0 0% 100%; /* neutral-50 */
-    --card-foreground: 222.2 47.4% 11.2%; /* neutral-900 */
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
 
-    --border: 214.3 31.6% 91.4%; /* neutral-200 */
-    --input: 214.3 31.6% 91.4%; /* neutral-200 */
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
 
-    --primary: 36 92% 50%; /* warm-500 */
-    --primary-foreground: 0 0% 100%; /* neutral-50 */
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
 
-    --secondary: 210 40% 96.1%; /* neutral-100 */
-    --secondary-foreground: 222.2 47.4% 11.2%; /* neutral-900 */
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
 
-    --accent: 210 40% 96.1%; /* neutral-100 */
-    --accent-foreground: 222.2 47.4% 11.2%; /* neutral-900 */
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
 
-    --destructive: 0 84.2% 60.2%; /* soft-red */
-    --destructive-foreground: 0 0% 100%;
-
-    --ring: 215.4 16.3% 46.9%; /* neutral-500 */
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
 
     --radius: 0.5rem;
   }
 
   .dark {
-    --background: 222.2 47.4% 11.2%; /* neutral-900 */
-    --foreground: 210 40% 96.1%; /* neutral-100 */
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
 
-    --muted: 217.2 32.6% 17.5%; /* neutral-800 */
-    --muted-foreground: 215 20.2% 65.1%; /* neutral-400 */
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
 
-    --popover: 222.2 47.4% 11.2%; /* neutral-900 */
-    --popover-foreground: 210 40% 96.1%; /* neutral-100 */
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
 
-    --card: 222.2 47.4% 11.2%; /* neutral-900 */
-    --card-foreground: 210 40% 96.1%; /* neutral-100 */
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
 
-    --border: 217.2 32.6% 17.5%; /* neutral-800 */
-    --input: 217.2 32.6% 17.5%; /* neutral-800 */
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
 
-    --primary: 36 92% 50%; /* warm-500 */
-    --primary-foreground: 0 0% 100%; /* neutral-50 */
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
 
-    --secondary: 217.2 32.6% 17.5%; /* neutral-800 */
-    --secondary-foreground: 210 40% 96.1%; /* neutral-100 */
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
 
-    --accent: 217.2 32.6% 17.5%; /* neutral-800 */
-    --accent-foreground: 210 40% 96.1%; /* neutral-100 */
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
 
-    --destructive: 0 62.8% 30.6%; /* soft-red-dark */
-    --destructive-foreground: 210 40% 96.1%;
-
-    --ring: 217.2 32.6% 17.5%; /* neutral-800 */
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 210 40% 98%;
   }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Custom colors for MenuMagic */
+.bg-warm-500 {
+  background-color: #ff7e5f; /* A warm, inviting orange-red */
+}
+
+.hover\:bg-warm-600:hover {
+  background-color: #fe6a4a; /* Slightly darker on hover */
+}
+
+.text-warm-500 {
+  color: #ff7e5f;
+}
+
+.border-warm-500 {
+  border-color: #ff7e5f;
+}
+
+/* Fade in and out animation for "Guardado!" */
+@keyframes fade-in-out {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  80% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+}
+
+.animate-fade-in-out {
+  animation: fade-in-out 1.5s ease-in-out forwards;
 }

@@ -3,8 +3,18 @@ import type { NextRequest } from "next/server"
 import { getSession } from "@/lib/auth" // Assuming getSession is in lib/auth.ts
 
 export async function middleware(request: NextRequest) {
-  const session = await getSession()
   const { pathname } = request.nextUrl
+
+  console.log(`[MIDDLEWARE] Processing request for pathname: ${pathname}`)
+
+  // Skip middleware for /menu/[id] routes - these should be public
+  if (pathname.startsWith("/menu/")) {
+    console.log(`[MIDDLEWARE] Skipping auth check for public menu route: ${pathname}`)
+    return NextResponse.next()
+  }
+
+  const session = await getSession()
+  console.log(`[MIDDLEWARE] Session status: ${session ? "AUTHENTICATED" : "NOT AUTHENTICATED"}`)
 
   // Define paths that require authentication
   const protectedPaths = [
@@ -50,9 +60,11 @@ export async function middleware(request: NextRequest) {
   // If they are logged in and NOT on onboarding, but should be, redirect them.
   // This logic might need refinement based on how you track onboarding completion.
   if (session && pathname === "/register") {
+    console.log(`[MIDDLEWARE] Redirecting authenticated user from /register to /onboarding`)
     return NextResponse.redirect(new URL("/onboarding", request.url))
   }
   if (session && pathname === "/login") {
+    console.log(`[MIDDLEWARE] Redirecting authenticated user from /login to /dashboard`)
     return NextResponse.redirect(new URL("/dashboard", request.url))
   }
 
@@ -66,19 +78,23 @@ export async function middleware(request: NextRequest) {
     return pathname === path || (pathname.startsWith(path) && pathname.charAt(path.length) === "/")
   })
 
+  console.log(`[MIDDLEWARE] Path ${pathname} is protected: ${isProtected}`)
+
   if (isProtected && !session) {
     // If trying to access a protected path without a session, redirect to login
+    console.log(`[MIDDLEWARE] Redirecting unauthenticated user to /login`)
     const loginUrl = new URL("/login", request.url)
     loginUrl.searchParams.set("callbackUrl", request.url) // Optional: add callback URL
     return NextResponse.redirect(loginUrl)
   }
 
+  console.log(`[MIDDLEWARE] Allowing request to proceed to: ${pathname}`)
   return NextResponse.next()
 }
 
 // Configure which paths the middleware should run on
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|terms|privacy|placeholder.svg).*)", // Run on all paths except API routes, static files, and specific public pages
+    "/((?!api|_next/static|_next/image|favicon.ico|terms|privacy|placeholder.svg).*)", // Removed 'menu' from exclusions so we can log it, but we'll skip auth for /menu routes
   ],
 }

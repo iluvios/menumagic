@@ -48,13 +48,18 @@ export async function getDigitalMenus() {
 }
 
 export async function getDigitalMenuWithTemplate(menuId: number) {
-  console.log(`[getDigitalMenuWithTemplate] Attempting to fetch menu ${menuId} with template.`)
+  console.log(`[getDigitalMenuWithTemplate] ========== FUNCTION START ==========`)
+  console.log(`[getDigitalMenuWithTemplate] Input menuId: ${menuId} (type: ${typeof menuId})`)
+  console.log(`[getDigitalMenuWithTemplate] DATABASE_URL status: ${process.env.DATABASE_URL ? "SET" : "NOT SET"}`)
+
+  // Check if sql function is available
+  console.log(`[getDigitalMenuWithTemplate] sql function type: ${typeof sql}`)
+  console.log(`[getDigitalMenuWithTemplate] sql function: ${sql}`)
+
+  let result: any = null
+
   try {
-    const restaurantId = await getRestaurantIdFromSession()
-    if (!restaurantId) {
-      console.error("[getDigitalMenuWithTemplate] No restaurant ID found for session.")
-      return null
-    }
+    console.log(`[getDigitalMenuWithTemplate] --- STEP 1: Creating SQL query ---`)
 
     const query = sql`
       SELECT
@@ -65,29 +70,72 @@ export async function getDigitalMenuWithTemplate(menuId: number) {
         dm.created_at,
         dm.updated_at,
         dm.template_id,
+        dm.restaurant_id,
         mt.name AS template_name,
         mt.description AS template_description,
-        mt.preview_image AS template_preview_image,
+        mt.preview_image_url AS template_preview_image,
         mt.template_data_json AS template_data
       FROM digital_menus dm
       LEFT JOIN menu_templates mt ON dm.template_id = mt.id
-      WHERE dm.id = ${menuId} AND dm.restaurant_id = ${restaurantId}
+      WHERE dm.id = ${menuId}
     `
-    console.log("[getDigitalMenuWithTemplate] Executing SQL query:", query.strings[0]) // Log the query string
-    const result = await query
 
-    if (result.length === 0) {
-      console.warn(
-        `[getDigitalMenuWithTemplate] No menu found for ID ${menuId} or it does not belong to this restaurant.`,
-      )
+    console.log(`[getDigitalMenuWithTemplate] --- STEP 2: Query object created ---`)
+    console.log(`[getDigitalMenuWithTemplate] Query object type: ${typeof query}`)
+    console.log(`[getDigitalMenuWithTemplate] Query strings: ${JSON.stringify(query.strings)}`)
+    console.log(`[getDigitalMenuWithTemplate] Query values: ${JSON.stringify(query.values)}`)
+
+    console.log(`[getDigitalMenuWithTemplate] --- STEP 3: About to execute query ---`)
+
+    try {
+      console.log(`[getDigitalMenuWithTemplate] --- STEP 3a: Calling await query ---`)
+      result = await query
+      console.log(`[getDigitalMenuWithTemplate] --- STEP 3b: Query execution completed ---`)
+      console.log(`[getDigitalMenuWithTemplate] Raw result type: ${typeof result}`)
+      console.log(`[getDigitalMenuWithTemplate] Raw result is array: ${Array.isArray(result)}`)
+      console.log(`[getDigitalMenuWithTemplate] Raw result is null: ${result === null}`)
+      console.log(`[getDigitalMenuWithTemplate] Raw result is undefined: ${result === undefined}`)
+
+      if (result) {
+        console.log(`[getDigitalMenuWithTemplate] Result length: ${result.length}`)
+        console.log(`[getDigitalMenuWithTemplate] Result content: ${JSON.stringify(result, null, 2)}`)
+      } else {
+        console.log(`[getDigitalMenuWithTemplate] Result is falsy: ${result}`)
+      }
+    } catch (queryError: any) {
+      console.error(`[getDigitalMenuWithTemplate] --- STEP 3c: ERROR DURING QUERY EXECUTION ---`)
+      console.error(`[getDigitalMenuWithTemplate] Query error type: ${typeof queryError}`)
+      console.error(`[getDigitalMenuWithTemplate] Query error message: ${queryError?.message}`)
+      console.error(`[getDigitalMenuWithTemplate] Query error stack: ${queryError?.stack}`)
+      console.error(`[getDigitalMenuWithTemplate] Query error name: ${queryError?.name}`)
+      console.error(`[getDigitalMenuWithTemplate] Full query error object:`, queryError)
+      throw new Error(`Database query failed: ${queryError?.message || "Unknown query error"}`)
+    }
+
+    console.log(`[getDigitalMenuWithTemplate] --- STEP 4: Processing result ---`)
+
+    if (!result || result.length === 0) {
+      console.warn(`[getDigitalMenuWithTemplate] No menu found for ID ${menuId}. Result: ${result}`)
       return null
     }
 
-    console.log("[getDigitalMenuWithTemplate] Successfully fetched menu data:", result[0])
-    return result[0]
-  } catch (error) {
-    console.error(`[getDigitalMenuWithTemplate] Detailed error fetching menu ${menuId}:`, error)
-    throw new Error("Failed to fetch digital menu with template.")
+    console.log(`[getDigitalMenuWithTemplate] --- STEP 5: Accessing result[0] ---`)
+    console.log(`[getDigitalMenuWithTemplate] About to access result[0]...`)
+
+    const firstResult = result[0]
+    console.log(`[getDigitalMenuWithTemplate] Successfully accessed result[0]: ${JSON.stringify(firstResult, null, 2)}`)
+
+    console.log(`[getDigitalMenuWithTemplate] ========== FUNCTION SUCCESS ==========`)
+    return firstResult
+  } catch (error: any) {
+    console.error(`[getDigitalMenuWithTemplate] ========== FUNCTION ERROR ==========`)
+    console.error(`[getDigitalMenuWithTemplate] Error type: ${typeof error}`)
+    console.error(`[getDigitalMenuWithTemplate] Error message: ${error?.message}`)
+    console.error(`[getDigitalMenuWithTemplate] Error stack: ${error?.stack}`)
+    console.error(`[getDigitalMenuWithTemplate] Error name: ${error?.name}`)
+    console.error(`[getDigitalMenuWithTemplate] Full error object:`, error)
+    console.error(`[getDigitalMenuWithTemplate] ========== END ERROR LOG ==========`)
+    throw new Error(`Failed to fetch digital menu with template: ${error?.message || "Unknown error"}`)
   }
 }
 
@@ -127,7 +175,7 @@ export async function updateDigitalMenu(id: number, data: { name?: string; statu
         status = COALESCE(${data.status}, status),
         template_id = COALESCE(${data.template_id}, template_id),
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${id} AND restaurant_id = ${restaurantId}
+    WHERE id = ${id} AND restaurant_id = ${restaurantId}
       RETURNING id, name, status, template_id
     `
     revalidatePath("/dashboard/menu-studio/digital-menu")
@@ -164,18 +212,12 @@ export async function deleteDigitalMenu(id: number) {
 // Menu Item Actions
 export async function getMenuItemsByMenuId(digitalMenuId: number) {
   try {
-    const restaurantId = await getRestaurantIdFromSession()
-    if (!restaurantId) {
-      console.error("No restaurant ID found for session.")
-      return []
-    }
-
     const result = await sql`
       SELECT mi.id, mi.name, mi.description, mi.price, mi.image_url, mi.menu_category_id, c.name as category_name
       FROM menu_items mi
-      JOIN digital_menus dm ON mi.digital_menu_id = dm.id
+      JOIN digital_menus dm ON mi.digital_menu_id = dm.id -- Join to ensure menu exists
       LEFT JOIN categories c ON mi.menu_category_id = c.id
-      WHERE mi.digital_menu_id = ${digitalMenuId} AND dm.restaurant_id = ${restaurantId}
+      WHERE mi.digital_menu_id = ${digitalMenuId}
       ORDER BY mi.name ASC
     `
     return result || []
@@ -195,7 +237,7 @@ export async function createMenuItem(
   },
   imageFile?: File,
 ) {
-  console.log("Server Action: createMenuItem received data:", data) // NEW LOG
+  console.log("Server Action: createMenuItem received data:", data)
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
@@ -203,7 +245,6 @@ export async function createMenuItem(
       throw new Error("Authentication required to create menu item.")
     }
 
-    // Verify digital_menu_id belongs to the restaurant
     const menuCheck = await sql`
       SELECT id FROM digital_menus WHERE id = ${data.digital_menu_id} AND restaurant_id = ${restaurantId}
     `
@@ -223,7 +264,7 @@ export async function createMenuItem(
     `
     revalidatePath(`/dashboard/menu-studio/digital-menu`)
     revalidatePath(`/dashboard/menus/dishes/${data.digital_menu_id}`)
-    console.log("Server Action: createMenuItem result:", result[0]) // NEW LOG
+    console.log("Server Action: createMenuItem result:", result[0])
     return result[0]
   } catch (error) {
     console.error("Error creating menu item:", error)
@@ -239,13 +280,13 @@ export async function updateMenuItem(
     price?: number
     menu_category_id?: number
   },
-  imageFileOrNull?: File | null, // Use File | null to distinguish between no change and explicit null
+  imageFileOrNull?: File | null,
 ) {
   console.log("Server Action: updateMenuItem received data:", {
     id,
     data,
     imageFileOrNull: imageFileOrNull ? (imageFileOrNull instanceof File ? imageFileOrNull.name : "null") : "undefined",
-  }) // NEW LOG
+  })
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
@@ -253,9 +294,8 @@ export async function updateMenuItem(
       throw new Error("Authentication required to update menu item.")
     }
 
-    // Get current item to check ownership and existing image
     const currentItem = await sql`
-      SELECT mi.image_url, dm.restaurant_id
+      SELECT mi.image_url, dm.restaurant_id, mi.digital_menu_id
       FROM menu_items mi
       JOIN digital_menus dm ON mi.digital_menu_id = dm.id
       WHERE mi.id = ${id}
@@ -264,23 +304,20 @@ export async function updateMenuItem(
       throw new Error("Menu item not found or does not belong to this restaurant.")
     }
 
-    let imageUrlToUpdate: string | undefined | null = undefined // undefined means no change
+    let imageUrlToUpdate: string | undefined | null = undefined
     const existingImageUrl = currentItem[0].image_url
 
     if (imageFileOrNull === null) {
-      // Explicitly set to null (user removed image)
       imageUrlToUpdate = null
       if (existingImageUrl) {
         await deleteImageFromBlob(existingImageUrl)
       }
     } else if (imageFileOrNull instanceof File) {
-      // New file provided (user uploaded new image)
       imageUrlToUpdate = await uploadImageToBlob(imageFileOrNull, "menu-items")
       if (existingImageUrl) {
-        await deleteImageFromBlob(existingImageUrl) // Delete old image
+        await deleteImageFromBlob(existingImageUrl)
       }
     }
-    // If imageFileOrNull is undefined, imageUrlToUpdate remains undefined (no change to image_url column)
 
     const result = await sql`
       UPDATE menu_items
@@ -289,14 +326,14 @@ export async function updateMenuItem(
         description = COALESCE(${data.description}, description),
         price = COALESCE(${data.price}, price),
         menu_category_id = COALESCE(${data.menu_category_id}, menu_category_id),
-        image_url = COALESCE(${imageUrlToUpdate}, image_url), -- Use COALESCE for image_url
+        image_url = COALESCE(${imageUrlToUpdate}, image_url),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ${id}
       RETURNING id, name, description, price, image_url, menu_category_id
     `
     revalidatePath(`/dashboard/menu-studio/digital-menu`)
     revalidatePath(`/dashboard/menus/dishes/${currentItem[0].digital_menu_id}`)
-    console.log("Server Action: updateMenuItem result:", result[0]) // NEW LOG
+    console.log("Server Action: updateMenuItem result:", result[0])
     return result[0]
   } catch (error) {
     console.error("Error updating menu item:", error)
@@ -312,9 +349,8 @@ export async function deleteMenuItem(id: number) {
       throw new Error("Authentication required to delete menu item.")
     }
 
-    // Get item to delete its image from blob storage
     const itemToDelete = await sql`
-      SELECT mi.image_url, dm.digital_menu_id
+      SELECT mi.image_url, mi.digital_menu_id
       FROM menu_items mi
       JOIN digital_menus dm ON mi.digital_menu_id = dm.id
       WHERE mi.id = ${id} AND dm.restaurant_id = ${restaurantId}
@@ -343,18 +379,16 @@ export async function deleteMenuItem(id: number) {
 // AI Onboarding Mock Actions
 export async function mockAiMenuUpload(file: File, digitalMenuId: number) {
   console.log(`Mock AI processing file: ${file.name} for menu ID: ${digitalMenuId}`)
-  // Simulate AI processing time
   await new Promise((resolve) => setTimeout(resolve, 3000))
 
-  // Mock extracted items with placeholder images and categories
   const mockItems = [
     {
       id: 1,
       name: "Pizza Margherita",
-      description: "Clásica pizza con tomate, mozzarella fresca y albahaca.",
+      description: "Clásica pizza con tomate, mozzarella fresca y albahabaya.",
       price: 12.5,
       image_url: "/placeholder.svg?height=120&width=120",
-      menu_category_id: 1, // Assuming category ID 1 exists for "Pizzas"
+      menu_category_id: 1,
     },
     {
       id: 2,
@@ -362,7 +396,7 @@ export async function mockAiMenuUpload(file: File, digitalMenuId: number) {
       description: "Lechuga romana, crutones, queso parmesano y aderezo César.",
       price: 8.0,
       image_url: "/placeholder.svg?height=120&width=120",
-      menu_category_id: 2, // Assuming category ID 2 exists for "Ensaladas"
+      menu_category_id: 2,
     },
     {
       id: 3,
@@ -370,19 +404,16 @@ export async function mockAiMenuUpload(file: File, digitalMenuId: number) {
       description: "Postre italiano con capas de bizcochos, café, mascarpone y cacao.",
       price: 6.0,
       image_url: "/placeholder.svg?height=120&width=120",
-      menu_category_id: 3, // Assuming category ID 3 exists for "Postres"
+      menu_category_id: 3,
     },
   ]
 
-  // In a real scenario, you'd map these to actual category IDs from your DB
-  // For now, we'll just return them as is, assuming the categories exist or will be created.
   return mockItems
 }
 
 // Menu Template Actions
 export async function getMenuTemplates() {
   try {
-    // In a real app, you might fetch these from a database or a predefined list
     const templates = [
       {
         id: 1,
@@ -418,7 +449,6 @@ export async function applyTemplateToMenu(digitalMenuId: number, templateId: num
       throw new Error("Authentication required to apply template.")
     }
 
-    // Verify digital_menu_id belongs to the restaurant
     const menuCheck = await sql`
       SELECT id FROM digital_menus WHERE id = ${digitalMenuId} AND restaurant_id = ${restaurantId}
     `
@@ -426,7 +456,6 @@ export async function applyTemplateToMenu(digitalMenuId: number, templateId: num
       throw new Error("Digital menu not found or does not belong to this restaurant.")
     }
 
-    // Update the digital menu with the selected template_id
     await sql`
       UPDATE digital_menus
       SET template_id = ${templateId}, updated_at = CURRENT_TIMESTAMP

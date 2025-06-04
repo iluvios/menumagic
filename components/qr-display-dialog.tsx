@@ -4,13 +4,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button"
 import { Download } from "lucide-react"
 
-interface QrDisplayDialogProps {
+interface QRDisplayDialogProps {
+  // Changed to QRDisplayDialogProps
   isOpen: boolean
   onClose: () => void
   menuUrl: string | null
 }
 
-export function QrDisplayDialog({ isOpen, onClose, menuUrl }: QrDisplayDialogProps) {
+export function QRDisplayDialog({ isOpen, onClose, menuUrl }: QRDisplayDialogProps) {
+  // Changed to QRDisplayDialog
   if (!menuUrl) return null
 
   // Generate a placeholder QR image URL. In a real app, this would be a QR generation API.

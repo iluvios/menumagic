@@ -29,6 +29,10 @@ import { MenuTemplatesSection } from "@/components/menu-templates-section" // Re
 import { MenuItemFormDialog } from "@/components/menu-item-form-dialog" // Re-enabled
 import { MenuItemsList } from "@/components/menu-items-list" // Re-enabled
 import { TemplateCustomizationDialog } from "@/components/template-customization-dialog"
+import { QRDisplayDialog } from "@/components/qr-display-dialog" // Corrected import casing
+import { CategoryReorderCard } from "@/components/category-reorder-card" // NEW: Import CategoryReorderCard
+import { CategoryFormDialog } from "@/components/category-form-dialog" // NEW: Import CategoryFormDialog
+import { PersistentQrDisplay } from "@/components/persistent-qr-display"
 
 interface DigitalMenu {
   id: number
@@ -51,6 +55,7 @@ interface Category {
   id: number
   name: string
   type: string // Added for filtering
+  order_index: number // NEW: Added order_index
 }
 
 type AiOnboardingStep = "idle" | "upload" | "processing" | "review" | "complete"
@@ -68,6 +73,10 @@ export default function DigitalMenuHubPage() {
   const [isMenuItemDialogOpen, setIsMenuItemDialogOpen] = useState(false)
   const [currentMenuItem, setCurrentMenuItem] = useState<MenuItem | null>(null)
 
+  // NEW: State for Category Form Dialog
+  const [isCategoryFormDialogOpen, setIsCategoryFormDialogOpen] = useState(false)
+  const [currentCategoryToEdit, setCurrentCategoryToEdit] = useState<Category | null>(null)
+
   // State variables for AI onboarding
   const [aiOnboardingStep, setAiOnboardingStep] = useState<AiOnboardingStep>("idle")
   const [aiMenuFile, setAiMenuFile] = useState<File | null>(null)
@@ -79,6 +88,10 @@ export default function DigitalMenuHubPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null)
   const [isTemplateCustomizationDialogOpen, setIsTemplateCustomizationDialogOpen] = useState(false) // Add this line
   const [templateToCustomizeId, setTemplateToCustomizeId] = useState<number | null>(null) // Add this line
+
+  // State for QR display dialog
+  const [isQrDisplayDialogOpen, setIsQrDisplayDialogOpen] = useState(false)
+  const [qrMenuUrl, setQrMenuUrl] = useState<string | null>(null)
 
   // Initial data fetching
   useEffect(() => {
@@ -367,6 +380,17 @@ export default function DigitalMenuHubPage() {
     setIsTemplateCustomizationDialogOpen(true)
   }
 
+  const handleOpenQrDisplayDialog = (menuId: number) => {
+    setQrMenuUrl(`${window.location.origin}/menu/${menuId}`)
+    setIsQrDisplayDialogOpen(true)
+  }
+
+  // NEW: Category Form Dialog Handlers
+  const handleOpenCategoryFormDialog = (category?: Category) => {
+    setCurrentCategoryToEdit(category || null)
+    setIsCategoryFormDialogOpen(true)
+  }
+
   return (
     <TooltipProvider>
       <div className="space-y-6">
@@ -404,6 +428,8 @@ export default function DigitalMenuHubPage() {
           <div className="md:col-span-2 space-y-6">
             {selectedMenu && (
               <>
+                <PersistentQrDisplay menuId={selectedMenu.id} />
+
                 <AiOnboardingSection
                   selectedMenu={selectedMenu}
                   aiOnboardingStep={aiOnboardingStep}
@@ -424,6 +450,13 @@ export default function DigitalMenuHubPage() {
                   onSelectTemplate={setSelectedTemplateId}
                   onApplyTemplate={handleApplyTemplate}
                   onCustomizeTemplate={handleOpenTemplateCustomizationDialog} // Add this line
+                />
+
+                {/* NEW: Category Reorder Card */}
+                <CategoryReorderCard
+                  categories={categories} // Pass categories from parent state
+                  onCategoriesUpdated={fetchCategories} // Pass parent's fetchCategories
+                  onAddCategoryClick={() => handleOpenCategoryFormDialog()}
                 />
 
                 <MenuItemsList
@@ -452,6 +485,21 @@ export default function DigitalMenuHubPage() {
                   onOpenChange={setIsTemplateCustomizationDialogOpen}
                   templateId={templateToCustomizeId}
                   onSaveSuccess={fetchTemplates} // Re-fetch templates after customization
+                />
+
+                {/* QR Display Dialog */}
+                <QRDisplayDialog
+                  isOpen={isQrDisplayDialogOpen}
+                  onClose={() => setIsQrDisplayDialogOpen(false)}
+                  menuUrl={qrMenuUrl}
+                />
+
+                {/* NEW: Category Form Dialog */}
+                <CategoryFormDialog
+                  isOpen={isCategoryFormDialogOpen}
+                  onOpenChange={setIsCategoryFormDialogOpen}
+                  currentCategory={currentCategoryToEdit}
+                  onSaveSuccess={fetchCategories} // Re-fetch categories after save
                 />
               </>
             )}

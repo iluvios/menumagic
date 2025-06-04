@@ -1,132 +1,113 @@
 "use server"
 
-import { sql } from "@/lib/db"
-import { revalidatePath } from "next/cache"
-import { getRestaurantIdFromSession } from "@/lib/auth"
+import { neon } from "@neondatabase/serverless"
+import { unstable_noStore as noStore } from "next/cache"
 
-export async function getCategories(restaurantId?: number) {
+const sql = neon(process.env.DATABASE_URL!)
+
+interface Category {
+  id: number
+  name: string
+  type: string
+  order_index: number
+}
+
+interface CategoryUpdate {
+  id: number
+  order_index: number
+}
+
+// New function to get all categories (if needed by other parts of the app)
+export async function getCategories(): Promise<Category[]> {
+  noStore()
   try {
-    const currentRestaurantId = restaurantId || (await getRestaurantIdFromSession())
-    if (!currentRestaurantId) {
-      console.error("[SERVER] getCategories: No restaurant ID found for session.")
-      return []
-    }
-
-    console.log(`[SERVER] getCategories: Fetching all categories for restaurant ID: ${currentRestaurantId}`)
-    const result = await sql`
-      SELECT id, name, type
+    const categories = await sql<Category[]>`
+      SELECT id, name, type, order_index
       FROM categories
-      WHERE restaurant_id = ${currentRestaurantId}
-      ORDER BY name ASC
+      ORDER BY order_index ASC, name ASC;
     `
-    console.log(`[SERVER] getCategories: Fetched ${result.length} categories. Example:`, result[0])
-    return result || []
-  } catch (error: any) {
-    console.error("[SERVER] getCategories: Error fetching all categories:", error.message, error) // Log full error object
+    return categories
+  } catch (error) {
+    console.error("Database Error:", error)
     throw new Error("Failed to fetch all categories.")
   }
 }
 
-export async function getCategoriesByType(type: string, restaurantId?: number) {
+export async function getCategoriesByType(type: string): Promise<Category[]> {
+  noStore()
   try {
-    const currentRestaurantId = restaurantId || (await getRestaurantIdFromSession())
-    if (!currentRestaurantId) {
-      console.error("[SERVER] getCategoriesByType: No restaurant ID found for session.")
-      return []
-    }
-
-    console.log(
-      `[SERVER] getCategoriesByType: Fetching categories of type: "${type}" for restaurant ID: ${currentRestaurantId}`,
-    )
-    const result = await sql`
-      SELECT id, name, type
+    const categories = await sql<Category[]>`
+      SELECT id, name, type, order_index
       FROM categories
-      WHERE type = ${type} AND restaurant_id = ${currentRestaurantId}
-      ORDER BY name ASC
+      WHERE type = ${type}
+      ORDER BY order_index ASC, name ASC;
     `
-    console.log(
-      `[SERVER] getCategoriesByType: Fetched ${result.length} categories for type "${type}". Example:`,
-      result[0],
-    )
-    return result || []
-  } catch (error: any) {
-    console.error(`[SERVER] getCategoriesByType: Error fetching categories of type "${type}":`, error.message, error) // Log full error object
-    throw new Error(`Failed to fetch categories for type ${type}.`)
+    return categories
+  } catch (error) {
+    console.error("Database Error:", error)
+    throw new Error("Failed to fetch categories by type.")
   }
 }
 
-export async function createCategory(data: { name: string; type: string; restaurant_id?: number }) {
+export async function createCategory(name: string, type: string): Promise<Category> {
   try {
-    const currentRestaurantId = data.restaurant_id || (await getRestaurantIdFromSession())
-    if (!currentRestaurantId) {
-      console.error("[SERVER] createCategory: No restaurant ID found for session.")
-      throw new Error("Authentication required to create category.")
-    }
-
-    console.log(
-      `[SERVER] createCategory: Attempting to create category: Name="${data.name}", Type="${data.type}", Restaurant ID=${currentRestaurantId}`,
-    )
-    const result = await sql`
-      INSERT INTO categories (name, type, restaurant_id)
-      VALUES (${data.name}, ${data.type}, ${currentRestaurantId})
-      RETURNING id, name, type
+    const maxOrderResult = await sql<{ max_order: number }[]>`
+      SELECT COALESCE(MAX(order_index), 0) as max_order
+      FROM categories
+      WHERE type = ${type};
     `
-    console.log("[SERVER] createCategory: Category creation successful:", result[0])
-    revalidatePath("/dashboard/menus") // Revalidate paths that might display categories
-    return result[0]
-  } catch (error: any) {
-    console.error("[SERVER] createCategory: Error creating category:", error.message, error) // Log full error object
+    const nextOrderIndex = maxOrderResult[0].max_order + 1
+
+    const [newCategory] = await sql<Category[]>`
+      INSERT INTO categories (name, type, order_index)
+      VALUES (${name}, ${type}, ${nextOrderIndex})
+      RETURNING id, name, type, order_index;
+    `
+    return newCategory
+  } catch (error) {
+    console.error("Database Error:", error)
     throw new Error("Failed to create category.")
   }
 }
 
-export async function updateCategory(id: number, data: { name?: string; type?: string }) {
+export async function updateCategory(id: number, name: string): Promise<Category> {
   try {
-    const restaurantId = await getRestaurantIdFromSession()
-    if (!restaurantId) {
-      console.error("[SERVER] updateCategory: No restaurant ID found for session.")
-      throw new Error("Authentication required to update category.")
-    }
-
-    console.log(
-      `[SERVER] updateCategory: Attempting to update category ID ${id} for restaurant ID ${restaurantId}. Data:`,
-      data,
-    )
-    await sql`
+    const [updatedCategory] = await sql<Category[]>`
       UPDATE categories
-      SET 
-        name = COALESCE(${data.name}, name),
-        type = COALESCE(${data.type}, type),
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${id} AND restaurant_id = ${restaurantId}
+      SET name = ${name}
+      WHERE id = ${id}
+      RETURNING id, name, type, order_index;
     `
-    console.log(`[SERVER] updateCategory: Category ID ${id} updated successfully.`)
-    revalidatePath("/dashboard/menus")
-    return { success: true }
-  } catch (error: any) {
-    console.error("[SERVER] updateCategory: Error updating category:", error.message, error) // Log full error object
+    return updatedCategory
+  } catch (error) {
+    console.error("Database Error:", error)
     throw new Error("Failed to update category.")
   }
 }
 
-export async function deleteCategory(id: number) {
+export async function deleteCategory(id: number): Promise<void> {
   try {
-    const restaurantId = await getRestaurantIdFromSession()
-    if (!restaurantId) {
-      console.error("[SERVER] deleteCategory: No restaurant ID found for session.")
-      throw new Error("Authentication required to delete category.")
-    }
-
-    console.log(`[SERVER] deleteCategory: Attempting to delete category ID ${id} for restaurant ID ${restaurantId}.`)
     await sql`
       DELETE FROM categories
-      WHERE id = ${id} AND restaurant_id = ${restaurantId}
+      WHERE id = ${id};
     `
-    console.log(`[SERVER] deleteCategory: Category ID ${id} deleted successfully.`)
-    revalidatePath("/dashboard/menus")
-    return { success: true }
-  } catch (error: any) {
-    console.error("[SERVER] deleteCategory: Error deleting category:", error.message, error) // Log full error object
+  } catch (error) {
+    console.error("Database Error:", error)
     throw new Error("Failed to delete category.")
+  }
+}
+
+export async function updateCategoryOrder(updates: CategoryUpdate[]): Promise<void> {
+  try {
+    for (const update of updates) {
+      await sql`
+        UPDATE categories
+        SET order_index = ${update.order_index}
+        WHERE id = ${update.id};
+      `
+    }
+  } catch (error) {
+    console.error("Database Error:", error)
+    throw new Error("Failed to update category order.")
   }
 }
