@@ -1,16 +1,22 @@
-export function formatCurrency(amount: number, currencyCode = "USD"): string {
-  return new Intl.NumberFormat("en-US", {
+export function formatCurrency(amount: number, currency = "USD", locale = "en-US"): string {
+  return new Intl.NumberFormat(locale, {
     style: "currency",
-    currency: currencyCode,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    currency: currency,
   }).format(amount)
 }
 
 export function formatPercentage(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "percent",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(value / 100) // Assuming value is a percentage like 50 for 50%
+  return `${(value * 100).toFixed(0)}%`
+}
+
+export function slugify(text: string): string {
+  return text
+    .toString()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Remove diacritics
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "-") // Replace spaces with -
+    .replace(/[^\w-]+/g, "") // Remove all non-word chars
+    .replace(/--+/g, "-") // Replace multiple - with single -
 }

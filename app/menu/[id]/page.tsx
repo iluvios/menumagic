@@ -1,12 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { notFound } from "next/navigation"
 import { getDigitalMenuWithTemplate, getMenuItemsByMenuId } from "@/lib/actions/menu-studio-actions"
 import { getBrandKit } from "@/lib/actions/brand-kit-actions"
 import { QRDisplayDialog } from "@/components/qr-display-dialog"
-import { formatCurrency } from "@/lib/utils/client-formatters"
-import { QrCodeIcon, MapPin, Clock, Phone } from "lucide-react" // CORRECTED: Import directly from lucide-react
+import { formatCurrency, slugify } from "@/lib/utils/client-formatters" // Import slugify
+import { QrCodeIcon, MapPin, Clock, Phone } from "lucide-react"
 
 interface MenuItem {
   id: number
@@ -80,6 +80,9 @@ export default function LiveDigitalMenuPage({ params }: { params: { id: string }
   const [error, setError] = useState<string | null>(null)
   const [isQrDialogOpen, setIsQrDialogOpen] = useState(false)
 
+  // Ref to store references to each category section for scrolling
+  const categoryRefs = useRef<Map<string, HTMLElement | null>>(new Map())
+
   useEffect(() => {
     console.log(`[LiveDigitalMenuPage - useEffect] Starting fetch for menuId: ${menuId}`)
     const fetchMenu = async () => {
@@ -131,7 +134,7 @@ export default function LiveDigitalMenuPage({ params }: { params: { id: string }
 
         // Group menu items by category and prepare for ordering
         const groupedItemsMap = new Map<string, MenuItem[]>()
-        const categoryOrderMap = new Map<string, number>()
+        const categoryOrderMap = new Map<string, number>() // Map category name to its menu-specific order_index
 
         menuItems.forEach((item) => {
           const categoryName = item.category_name || "Sin Categoría"
@@ -139,16 +142,22 @@ export default function LiveDigitalMenuPage({ params }: { params: { id: string }
             groupedItemsMap.set(categoryName, [])
           }
           groupedItemsMap.get(categoryName)?.push(item)
-          // Store the order_index for each category name
-          if (!categoryOrderMap.has(categoryName)) {
-            categoryOrderMap.set(categoryName, item.order_index || 0)
+          // Store the menu-specific order_index for each category name
+          // Use item.order_index if available, otherwise default to 0 or a large number
+          if (item.order_index !== null && item.order_index !== undefined) {
+            categoryOrderMap.set(categoryName, item.order_index)
+          } else if (!categoryOrderMap.has(categoryName)) {
+            // If order_index is null/undefined for an item, and category not yet mapped,
+            // assign a default high value to put it at the end or handle as needed.
+            // For now, let's default to 0, assuming items without explicit order will be sorted by name later.
+            categoryOrderMap.set(categoryName, 0)
           }
         })
 
-        // Create an array of [categoryName, items] pairs, sorted by order_index
+        // Create an array of [categoryName, items] pairs, sorted by menu-specific order_index
         const finalOrderedGroupedItems: [string, MenuItem[]][] = Array.from(groupedItemsMap.entries()).sort(
           ([catNameA], [catNameB]) => {
-            const orderA = categoryOrderMap.get(catNameA) || 0
+            const orderA = categoryOrderMap.get(catNameA) || 0 // Default to 0 if not found (shouldn't happen if logic is correct)
             const orderB = categoryOrderMap.get(catNameB) || 0
             return orderA - orderB
           },
@@ -178,6 +187,13 @@ export default function LiveDigitalMenuPage({ params }: { params: { id: string }
 
     fetchMenu()
   }, [menuId, params.id])
+
+  const handleCategoryClick = (categorySlug: string) => {
+    const element = categoryRefs.current.get(categorySlug)
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+  }
 
   if (loading) {
     return (
@@ -270,6 +286,31 @@ export default function LiveDigitalMenuPage({ params }: { params: { id: string }
             </button>
           </div>
         </div>
+        {/* Category Navigation */}
+        {groupedItems.length > 0 && (
+          <nav className="max-w-4xl mx-auto px-4 py-2 overflow-x-auto whitespace-nowrap scrollbar-hide">
+            <div className="flex gap-3">
+              {groupedItems.map(([categoryName]) => {
+                const categorySlug = slugify(categoryName)
+                return (
+                  <button
+                    key={categorySlug}
+                    onClick={() => handleCategoryClick(categorySlug)}
+                    className="px-4 py-2 rounded-full text-sm font-medium transition-colors duration-200"
+                    style={{
+                      backgroundColor: template.accent_color,
+                      color: template.secondary_color,
+                      borderRadius: template.border_radius,
+                      minWidth: "fit-content", // Ensure buttons don't shrink too much
+                    }}
+                  >
+                    {categoryName}
+                  </button>
+                )
+              })}
+            </div>
+          </nav>
+        )}
       </header>
 
       {/* Main Content */}
@@ -318,7 +359,11 @@ export default function LiveDigitalMenuPage({ params }: { params: { id: string }
         <div className="space-y-8">
           {/* Iterate over the ordered array of [categoryName, items] */}
           {groupedItems.map(([category, items]: [string, any]) => (
-            <section key={category}>
+            <section
+              key={category}
+              id={slugify(category)} // Assign ID for scrolling
+              ref={(el) => categoryRefs.current.set(slugify(category), el)} // Store ref
+            >
               <h3
                 className="text-xl font-bold mb-4 pb-2 border-b-2"
                 style={{

@@ -1,9 +1,7 @@
 "use client"
-
-import type React from "react" // Explicitly import React for client component JSX
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogTrigger, DialogContent } from "@/components/ui/dialog"
+import { Card, CardContent } from "@/components/ui/card"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -11,35 +9,21 @@ import {
   createDigitalMenu,
   updateDigitalMenu,
   deleteDigitalMenu,
-  getMenuItemsByMenuId, // Re-enabled
-  deleteMenuItem, // Re-enabled
-  mockAiMenuUpload, // Re-enabled
-  applyTemplateToMenu, // Re-enabled
-  getMenuTemplates, // Re-enabled
-  createMenuItem, // Declared
-} from "@/lib/actions/menu-studio-actions"
-import { getCategoriesByType } from "@/lib/actions/category-actions" // Ensure this is imported
-import { Plus } from "lucide-react"
-
-// Import all necessary atomized components
-import { DigitalMenuFormContent } from "@/components/digital-menu-form-content"
+  uploadQrCodeForDigitalMenu,
+  getMenuItemsByMenuId,
+  getMenuCategoriesForDigitalMenu,
+  getMenuTemplates,
+  deleteMenuItem,
+  getAllGlobalCategories,
+  applyTemplateToMenu,
+} from "@/lib/actions/menu-studio-actions" // Import from consolidated actions
+import type { DigitalMenu } from "@/lib/types" // Assuming you have a DigitalMenu type defined
+import { PlusIcon } from "lucide-react"
+import { DigitalMenuFormDialog } from "@/components/digital-menu-form-dialog"
 import { DigitalMenusList } from "@/components/digital-menus-list"
-import { AiOnboardingSection } from "@/components/ai-onboarding-section" // Re-enabled
-import { MenuTemplatesSection } from "@/components/menu-templates-section" // Re-enabled
-import { MenuItemFormDialog } from "@/components/menu-item-form-dialog" // Re-enabled
-import { MenuItemsList } from "@/components/menu-items-list" // Re-enabled
-import { TemplateCustomizationDialog } from "@/components/template-customization-dialog"
-import { QRDisplayDialog } from "@/components/qr-display-dialog" // Corrected import casing
-import { CategoryReorderCard } from "@/components/category-reorder-card" // NEW: Import CategoryReorderCard
-import { CategoryFormDialog } from "@/components/category-form-dialog" // NEW: Import CategoryFormDialog
-import { PersistentQrDisplay } from "@/components/persistent-qr-display"
-
-interface DigitalMenu {
-  id: number
-  name: string
-  status: string
-  qr_code_url?: string
-}
+import { QrDisplayDialog } from "@/components/qr-display-dialog"
+import { MenuItemFormDialog } from "@/components/menu-item-form-dialog"
+import { CategoryFormDialog } from "@/components/category-form-dialog"
 
 interface MenuItem {
   id: number
@@ -48,83 +32,96 @@ interface MenuItem {
   price: number
   image_url?: string
   menu_category_id: number
-  category_name?: string // Added for display
+  category_name?: string
+  reusable_menu_item_id?: number
 }
 
-interface Category {
+interface GlobalCategory {
   id: number
   name: string
-  type: string // Added for filtering
-  order_index: number // NEW: Added order_index
+  type: string
+  order_index: number
 }
 
-type AiOnboardingStep = "idle" | "upload" | "processing" | "review" | "complete"
+interface DigitalMenuCategory {
+  id: number
+  digital_menu_id: number
+  category_id: number
+  category_name: string
+  order_index: number
+}
+
+interface MenuTemplate {
+  id: number
+  name: string
+  description: string
+  preview_image: string
+}
 
 export default function DigitalMenuHubPage() {
   const { toast } = useToast()
   const [menus, setMenus] = useState<DigitalMenu[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [isFormDialogOpen, setIsFormDialogOpen] = useState(false)
+  const [editingMenu, setEditingMenu] = useState<DigitalMenu | null>(null)
+  const [isQrDialogOpen, setIsQrDialogOpen] = useState(false)
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null)
+  const [selectedMenuForQr, setSelectedMenuForQr] = useState<DigitalMenu | null>(null)
   const [selectedMenu, setSelectedMenu] = useState<DigitalMenu | null>(null)
 
-  const [isMenuDialogOpen, setIsMenuDialogOpen] = useState(false)
-
-  // State variables for menu item management
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
+  // Dialog states
   const [isMenuItemDialogOpen, setIsMenuItemDialogOpen] = useState(false)
-  const [currentMenuItem, setCurrentMenuItem] = useState<MenuItem | null>(null)
-
-  // NEW: State for Category Form Dialog
   const [isCategoryFormDialogOpen, setIsCategoryFormDialogOpen] = useState(false)
-  const [currentCategoryToEdit, setCurrentCategoryToEdit] = useState<Category | null>(null)
 
-  // State variables for AI onboarding
-  const [aiOnboardingStep, setAiOnboardingStep] = useState<AiOnboardingStep>("idle")
-  const [aiMenuFile, setAiMenuFile] = useState<File | null>(null)
-  const [aiProcessingProgress, setAiProcessingProgress] = useState(0)
-  const [aiExtractedItems, setAiExtractedItems] = useState<MenuItem[]>([])
-
-  // State variables for templates
-  const [templates, setTemplates] = useState<any[]>([])
-  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null)
-  const [isTemplateCustomizationDialogOpen, setIsTemplateCustomizationDialogOpen] = useState(false) // Add this line
-  const [templateToCustomizeId, setTemplateToCustomizeId] = useState<number | null>(null) // Add this line
-
-  // State for QR display dialog
-  const [isQrDisplayDialogOpen, setIsQrDisplayDialogOpen] = useState(false)
-  const [qrMenuUrl, setQrMenuUrl] = useState<string | null>(null)
+  // Data states
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  const [globalCategories, setGlobalCategories] = useState<GlobalCategory[]>([])
+  const [digitalMenuCategories, setDigitalMenuCategories] = useState<DigitalMenuCategory[]>([])
+  const [templates, setTemplates] = useState<MenuTemplate[]>([])
+  const [currentMenuItem, setCurrentMenuItem] = useState<MenuItem | null>(null)
+  const [currentCategoryToEdit, setCurrentCategoryToEdit] = useState<GlobalCategory | null>(null)
 
   // Initial data fetching
   useEffect(() => {
     fetchMenus()
-    fetchCategories() // Fetch categories on initial load
     fetchTemplates()
+    fetchGlobalCategories()
   }, [])
 
-  // Fetch menu items when selectedMenu changes
+  // Fetch menu items and categories when selectedMenu changes
   useEffect(() => {
     if (selectedMenu) {
       fetchMenuItems(selectedMenu.id)
-      // Reset AI onboarding state when menu selection changes
-      setAiOnboardingStep("idle")
-      setAiMenuFile(null)
-      setAiProcessingProgress(0)
-      setAiExtractedItems([])
+      fetchDigitalMenuCategories(selectedMenu.id)
+      // Reset QR state
+      setQrCodeUrl(null)
+      setSelectedMenuForQr(null)
     } else {
-      setMenuItems([]) // Clear items if no menu is selected
+      setMenuItems([])
+      setDigitalMenuCategories([])
     }
   }, [selectedMenu])
 
-  // Auto-select first menu if none is selected and dialog is closed
+  // Auto-select first menu
   useEffect(() => {
-    if (menus.length > 0 && !selectedMenu && !isMenuDialogOpen) {
+    if (menus.length > 0 && !selectedMenu) {
       setSelectedMenu(menus[0])
     }
-  }, [selectedMenu, menus, isMenuDialogOpen])
+  }, [selectedMenu, menus])
 
   const fetchMenus = async () => {
-    const data = await getDigitalMenus()
-    setMenus(data)
-    console.log("Menus fetched:", data)
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await getDigitalMenus()
+      setMenus(data)
+    } catch (err: any) {
+      console.error("Failed to fetch digital menus:", err)
+      setError("Failed to load digital menus. Please try again.")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const fetchMenuItems = async (menuId: number) => {
@@ -132,7 +129,6 @@ export default function DigitalMenuHubPage() {
       const items = await getMenuItemsByMenuId(menuId)
       setMenuItems(items)
     } catch (error: any) {
-      console.error("Failed to fetch menu items:", error)
       toast({
         title: "Error",
         description: error.message || "No se pudieron cargar los elementos del menú.",
@@ -142,18 +138,17 @@ export default function DigitalMenuHubPage() {
     }
   }
 
-  const fetchCategories = async () => {
+  const fetchDigitalMenuCategories = async (menuId: number) => {
     try {
-      const fetchedCategories = await getCategoriesByType("menu_item") // ENSURED THIS IS "menu_item"
-      setCategories(fetchedCategories)
+      const fetchedCategories = await getMenuCategoriesForDigitalMenu(menuId)
+      setDigitalMenuCategories(fetchedCategories)
     } catch (error: any) {
-      console.error("Failed to fetch categories:", error)
       toast({
         title: "Error",
-        description: error.message || "No se pudieron cargar las categorías.",
+        description: error.message || "No se pudieron cargar las categorías del menú.",
         variant: "destructive",
       })
-      setCategories([])
+      setDigitalMenuCategories([])
     }
   }
 
@@ -162,7 +157,6 @@ export default function DigitalMenuHubPage() {
       const fetchedTemplates = await getMenuTemplates()
       setTemplates(fetchedTemplates)
     } catch (error: any) {
-      console.error("Failed to fetch templates:", error)
       toast({
         title: "Error",
         description: error.message || "No se pudieron cargar las plantillas.",
@@ -172,51 +166,81 @@ export default function DigitalMenuHubPage() {
     }
   }
 
-  const handleCreateUpdateMenu = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const formData = new FormData(event.currentTarget)
-    const name = formData.get("name") as string
-    const status = formData.get("status") as string
-    const isNewMenu = formData.get("is_new") === "true"
-
-    console.log("--- handleCreateUpdateMenu Debug ---")
-    console.log("isNewMenu from form:", isNewMenu)
-    console.log("selectedMenu ID:", selectedMenu?.id)
-    console.log("----------------------------------")
-
+  const fetchGlobalCategories = async () => {
     try {
-      let result: DigitalMenu | null = null
-      if (!isNewMenu && selectedMenu?.id) {
-        result = await updateDigitalMenu(selectedMenu.id, { name, status })
-        toast({ title: "Menú actualizado", description: "El menú digital ha sido actualizado exitosamente." })
-      } else {
-        result = await createDigitalMenu({ name, status })
-        toast({ title: "Menú creado", description: "El nuevo menú digital ha sido creado exitosamente." })
-        if (result.id) setSelectedMenu({ id: result.id, name, status })
-      }
-      console.log("Server action result (create/update):", result)
-      await fetchMenus()
-      console.log("Menus state after fetchMenus in handler:", menus)
-      setIsMenuDialogOpen(false)
+      const fetchedCategories = await getAllGlobalCategories()
+      setGlobalCategories(fetchedCategories)
     } catch (error: any) {
-      toast({ title: "Error", description: error.message || "No se pudo guardar el menú.", variant: "destructive" })
+      toast({
+        title: "Error",
+        description: error.message || "No se pudieron cargar las categorías.",
+        variant: "destructive",
+      })
+      setGlobalCategories([])
+    }
+  }
+
+  const handleCreateOrUpdateMenu = async (menuData: { name: string; status: string }) => {
+    try {
+      if (editingMenu) {
+        await updateDigitalMenu(editingMenu.id, menuData)
+      } else {
+        await createDigitalMenu(menuData)
+      }
+      await fetchMenus() // Re-fetch menus to update the list
+      setIsFormDialogOpen(false)
+      setEditingMenu(null)
+    } catch (err: any) {
+      console.error("Failed to save digital menu:", err)
+      setError("Failed to save digital menu. Please try again.")
     }
   }
 
   const handleDeleteMenu = async (id: number) => {
-    if (confirm("¿Estás seguro de que quieres eliminar este menú digital y todos sus elementos?")) {
+    if (window.confirm("Are you sure you want to delete this menu? This action cannot be undone.")) {
       try {
         await deleteDigitalMenu(id)
-        toast({ title: "Menú eliminado", description: "El menú digital ha sido eliminado." })
-        fetchMenus()
-        if (selectedMenu?.id === id) setSelectedMenu(null)
-      } catch (error: any) {
-        toast({ title: "Error", description: error.message || "No se pudo eliminar el menú.", variant: "destructive" })
+        await fetchMenus() // Re-fetch menus to update the list
+      } catch (err: any) {
+        console.error("Failed to delete digital menu:", err)
+        setError("Failed to delete digital menu. Please try again.")
       }
     }
   }
 
-  // Menu Item Handlers
+  const handleEditMenu = (menu: DigitalMenu) => {
+    setEditingMenu(menu)
+    setIsFormDialogOpen(true)
+  }
+
+  const handleGenerateQr = async (menu: DigitalMenu) => {
+    setSelectedMenuForQr(menu)
+    if (menu.qr_code_url) {
+      setQrCodeUrl(menu.qr_code_url)
+      setIsQrDialogOpen(true)
+    } else {
+      // If no QR code exists, generate a placeholder or trigger generation logic
+      // For now, we'll just show a placeholder and indicate it needs generation
+      setQrCodeUrl(`/placeholder.svg?text=QR+Code+for+${encodeURIComponent(menu.name)}`)
+      setIsQrDialogOpen(true)
+      // In a real app, you'd trigger a server action here to generate and upload the QR
+      // For example: await uploadQrCodeForDigitalMenu(menu.id, 'base64_image_data_here');
+    }
+  }
+
+  const handleQrCodeGenerated = async (menuId: number, base64Image: string) => {
+    try {
+      const result = await uploadQrCodeForDigitalMenu(menuId, base64Image)
+      if (result.success) {
+        setQrCodeUrl(result.qrCodeUrl)
+        await fetchMenus() // Refresh menus to show updated QR URL
+      }
+    } catch (err: any) {
+      console.error("Failed to upload QR code:", err)
+      setError("Failed to upload QR code. Please try again.")
+    }
+  }
+
   const handleOpenMenuItemDialog = (item?: MenuItem) => {
     setCurrentMenuItem(item || null)
     setIsMenuItemDialogOpen(true)
@@ -227,7 +251,7 @@ export default function DigitalMenuHubPage() {
       try {
         await deleteMenuItem(id)
         toast({ title: "Éxito", description: "Elemento del menú eliminado." })
-        if (selectedMenu) fetchMenuItems(selectedMenu.id) // Refresh items for current menu
+        if (selectedMenu) fetchMenuItems(selectedMenu.id)
       } catch (error: any) {
         toast({
           title: "Error",
@@ -238,112 +262,15 @@ export default function DigitalMenuHubPage() {
     }
   }
 
-  // AI Onboarding Handlers
-  const handleAiFileChange = (file: File | null) => {
-    setAiMenuFile(file)
-    setAiOnboardingStep(file ? "upload" : "idle")
-    setAiExtractedItems([]) // Clear previous extracted items
+  const handleOpenCategoryManager = (category?: GlobalCategory) => {
+    setCurrentCategoryToEdit(category || null)
+    setIsCategoryFormDialogOpen(true)
   }
 
-  const startAiProcessing = async () => {
-    if (!aiMenuFile || !selectedMenu) {
-      toast({
-        title: "Error",
-        description: "Por favor, selecciona un archivo de menú y un menú digital.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    setAiOnboardingStep("processing")
-    setAiProcessingProgress(0)
-
-    try {
-      // Simulate progress
-      let progress = 0
-      const interval = setInterval(() => {
-        progress += 10
-        setAiProcessingProgress(Math.min(progress, 90))
-        if (progress >= 90) clearInterval(interval)
-      }, 300)
-
-      const extracted = await mockAiMenuUpload(aiMenuFile, selectedMenu.id)
-      clearInterval(interval)
-      setAiProcessingProgress(100)
-      setAiExtractedItems(extracted as MenuItem[]) // Cast to MenuItem[]
-      setAiOnboardingStep("review")
-      toast({ title: "Éxito", description: "Menú analizado por IA. Revisa los elementos." })
-    } catch (error: any) {
-      console.error("AI processing error:", error)
-      toast({
-        title: "Error",
-        description: error.message || "Error al procesar el menú con IA.",
-        variant: "destructive",
-      })
-      setAiOnboardingStep("idle")
-      setAiProcessingProgress(0)
-    }
-  }
-
-  const handleAcceptAiItem = async (item: MenuItem) => {
-    if (!selectedMenu) return
-    try {
-      // Create the item in the database
-      await createMenuItem(
-        {
-          digital_menu_id: selectedMenu.id,
-          name: item.name,
-          description: item.description,
-          price: item.price,
-          menu_category_id: item.menu_category_id,
-        },
-        item.image_url
-          ? await fetch(item.image_url)
-              .then((res) => res.blob())
-              .then((blob) => new File([blob], "ai_image.png", { type: blob.type }))
-          : undefined, // Simulate file from URL
-      )
-      toast({ title: "Éxito", description: `"${item.name}" añadido a tu menú.` })
-      setAiExtractedItems((prev) => prev.filter((i) => i.id !== item.id)) // Remove from extracted list
-      fetchMenuItems(selectedMenu.id) // Refresh the main menu items list
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || `No se pudo añadir "${item.name}".`,
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleAcceptAllAiItems = async () => {
-    if (!selectedMenu || aiExtractedItems.length === 0) return
-    try {
-      for (const item of aiExtractedItems) {
-        await createMenuItem(
-          {
-            digital_menu_id: selectedMenu.id,
-            name: item.name,
-            description: item.description,
-            price: item.price,
-            menu_category_id: item.menu_category_id,
-          },
-          item.image_url
-            ? await fetch(item.image_url)
-                .then((res) => res.blob())
-                .then((blob) => new File([blob], "ai_image.png", { type: blob.type }))
-            : undefined,
-        )
-      }
-      toast({ title: "Éxito", description: "Todos los elementos de IA añadidos a tu menú." })
-      setAiExtractedItems([])
-      setAiOnboardingStep("complete")
-      fetchMenuItems(selectedMenu.id)
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Error al añadir todos los elementos de IA.",
-        variant: "destructive",
-      })
+  const handleCategoriesUpdated = () => {
+    fetchGlobalCategories()
+    if (selectedMenu) {
+      fetchDigitalMenuCategories(selectedMenu.id)
     }
   }
 
@@ -359,8 +286,7 @@ export default function DigitalMenuHubPage() {
     try {
       await applyTemplateToMenu(selectedMenu.id, templateId)
       toast({ title: "Éxito", description: "Plantilla aplicada exitosamente." })
-      // Optionally, re-fetch menu details to show applied template
-      fetchMenus()
+      fetchMenus() // Refresh to get template name
     } catch (error: any) {
       toast({
         title: "Error",
@@ -370,141 +296,100 @@ export default function DigitalMenuHubPage() {
     }
   }
 
-  const handleOpenMenuDialog = () => {
-    setIsMenuDialogOpen(true)
-  }
-
-  const handleOpenTemplateCustomizationDialog = (templateId: number) => {
-    // Add this function
-    setTemplateToCustomizeId(templateId)
-    setIsTemplateCustomizationDialogOpen(true)
-  }
-
-  const handleOpenQrDisplayDialog = (menuId: number) => {
-    setQrMenuUrl(`${window.location.origin}/menu/${menuId}`)
-    setIsQrDisplayDialogOpen(true)
-  }
-
-  // NEW: Category Form Dialog Handlers
-  const handleOpenCategoryFormDialog = (category?: Category) => {
-    setCurrentCategoryToEdit(category || null)
-    setIsCategoryFormDialogOpen(true)
+  const handlePreviewMenu = () => {
+    if (selectedMenu) {
+      window.open(`/menu/${selectedMenu.id}`, "_blank")
+    }
   }
 
   return (
     <TooltipProvider>
-      <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-neutral-900">Digital Menu Hub</h1>
-            <p className="text-neutral-600">Gestiona tus menús digitales, sus elementos y categorías.</p>
-          </div>
-          {/* Dialog for creating/editing menus */}
-          <Dialog open={isMenuDialogOpen} onOpenChange={setIsMenuDialogOpen}>
-            <DialogTrigger asChild>
-              <Button
-                className="bg-warm-500 hover:bg-warm-600 text-white shadow-md whitespace-nowrap"
-                onClick={handleOpenMenuDialog}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Nuevo Menú Digital
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px] bg-white p-6 rounded-lg shadow-xl">
-              <DigitalMenuFormContent selectedMenu={selectedMenu} menus={menus} onSubmit={handleCreateUpdateMenu} />
-            </DialogContent>
-          </Dialog>
+      <div className="flex flex-col gap-6 p-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold">Digital Menus</h1>
+          <Button
+            onClick={() => {
+              setEditingMenu(null)
+              setIsFormDialogOpen(true)
+            }}
+          >
+            <PlusIcon className="mr-2 h-5 w-5" />
+            Nuevo Menú
+          </Button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {error && (
+          <Card className="border-red-500 bg-red-50">
+            <CardContent className="p-4 text-red-700">
+              <p>{error}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {loading ? (
+          <Card>
+            <CardContent className="p-6 text-center">Loading menus...</CardContent>
+          </Card>
+        ) : menus.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 text-center">No digital menus found. Create one to get started!</CardContent>
+          </Card>
+        ) : (
           <DigitalMenusList
             menus={menus}
-            selectedMenu={selectedMenu}
-            onSelectMenu={setSelectedMenu}
-            onEditMenu={handleOpenMenuDialog}
-            onDeleteMenu={handleDeleteMenu}
+            onEdit={handleEditMenu}
+            onDelete={handleDeleteMenu}
+            onGenerateQr={handleGenerateQr}
           />
+        )}
 
-          <div className="md:col-span-2 space-y-6">
-            {selectedMenu && (
-              <>
-                <PersistentQrDisplay menuId={selectedMenu.id} />
+        <DigitalMenuFormDialog
+          isOpen={isFormDialogOpen}
+          onOpenChange={setIsFormDialogOpen}
+          onSubmit={handleCreateOrUpdateMenu}
+          initialData={editingMenu}
+        />
 
-                <AiOnboardingSection
-                  selectedMenu={selectedMenu}
-                  aiOnboardingStep={aiOnboardingStep}
-                  aiProcessingProgress={aiProcessingProgress}
-                  aiExtractedItems={aiExtractedItems}
-                  aiMenuFile={aiMenuFile}
-                  onFileChange={handleAiFileChange}
-                  onStartProcessing={startAiProcessing}
-                  onAcceptItem={handleAcceptAiItem}
-                  onAcceptAllItems={handleAcceptAllAiItems}
-                  onCancel={() => setAiOnboardingStep("idle")}
-                />
+        {selectedMenuForQr && (
+          <QrDisplayDialog
+            isOpen={isQrDialogOpen}
+            onOpenChange={setIsQrDialogOpen}
+            qrCodeUrl={qrCodeUrl}
+            menuId={selectedMenuForQr.id}
+            menuName={selectedMenuForQr.name}
+            onQrCodeGenerated={handleQrCodeGenerated}
+          />
+        )}
 
-                <MenuTemplatesSection
-                  selectedMenu={selectedMenu}
-                  templates={templates}
-                  selectedTemplateId={selectedTemplateId}
-                  onSelectTemplate={setSelectedTemplateId}
-                  onApplyTemplate={handleApplyTemplate}
-                  onCustomizeTemplate={handleOpenTemplateCustomizationDialog} // Add this line
-                />
+        {/* Persistent QR Display for testing/demonstration */}
+        {/* <PersistentQrDisplay /> */}
 
-                {/* NEW: Category Reorder Card */}
-                <CategoryReorderCard
-                  categories={categories} // Pass categories from parent state
-                  onCategoriesUpdated={fetchCategories} // Pass parent's fetchCategories
-                  onAddCategoryClick={() => handleOpenCategoryFormDialog()}
-                />
+        {/* Dialogs */}
+        <MenuItemFormDialog
+          isOpen={isMenuItemDialogOpen}
+          onOpenChange={setIsMenuItemDialogOpen}
+          currentMenuItem={currentMenuItem}
+          digitalMenuId={selectedMenu?.id}
+          categories={globalCategories}
+          onSaveSuccess={() => {
+            if (selectedMenu) {
+              fetchMenuItems(selectedMenu.id)
+              fetchDigitalMenuCategories(selectedMenu.id)
+            }
+          }}
+          onCategoriesUpdated={handleCategoriesUpdated}
+          onOpenCategoryManager={() => handleOpenCategoryManager()}
+        />
 
-                <MenuItemsList
-                  selectedMenu={selectedMenu}
-                  menuItems={menuItems}
-                  aiOnboardingStep={aiOnboardingStep} // Pass AI step to potentially show empty state differently
-                  onOpenMenuItemDialog={handleOpenMenuItemDialog}
-                  onDeleteMenuItem={handleDeleteMenuItem}
-                />
-
-                <MenuItemFormDialog
-                  isOpen={isMenuItemDialogOpen}
-                  onOpenChange={setIsMenuItemDialogOpen}
-                  currentMenuItem={currentMenuItem}
-                  digitalMenuId={selectedMenu.id}
-                  categories={categories}
-                  onSaveSuccess={() => {
-                    if (selectedMenu) fetchMenuItems(selectedMenu.id)
-                  }}
-                  onCategoriesUpdated={fetchCategories} // Pass the fetchCategories function
-                />
-
-                {/* Add the TemplateCustomizationDialog */}
-                <TemplateCustomizationDialog
-                  isOpen={isTemplateCustomizationDialogOpen}
-                  onOpenChange={setIsTemplateCustomizationDialogOpen}
-                  templateId={templateToCustomizeId}
-                  onSaveSuccess={fetchTemplates} // Re-fetch templates after customization
-                />
-
-                {/* QR Display Dialog */}
-                <QRDisplayDialog
-                  isOpen={isQrDisplayDialogOpen}
-                  onClose={() => setIsQrDisplayDialogOpen(false)}
-                  menuUrl={qrMenuUrl}
-                />
-
-                {/* NEW: Category Form Dialog */}
-                <CategoryFormDialog
-                  isOpen={isCategoryFormDialogOpen}
-                  onOpenChange={setIsCategoryFormDialogOpen}
-                  currentCategory={currentCategoryToEdit}
-                  onSaveSuccess={fetchCategories} // Re-fetch categories after save
-                />
-              </>
-            )}
-          </div>
-        </div>
+        <CategoryFormDialog
+          isOpen={isCategoryFormDialogOpen}
+          onOpenChange={setIsCategoryFormDialogOpen}
+          currentCategory={currentCategoryToEdit}
+          digitalMenuId={selectedMenu?.id}
+          globalCategories={globalCategories}
+          digitalMenuCategories={digitalMenuCategories}
+          onSaveSuccess={handleCategoriesUpdated}
+        />
       </div>
     </TooltipProvider>
   )

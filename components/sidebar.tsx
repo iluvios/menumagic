@@ -1,218 +1,230 @@
 "use client"
 
+import type * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import {
   LayoutDashboard,
-  Utensils,
-  ShoppingCart,
-  DollarSign,
-  BarChart2,
-  Settings,
   ChefHat,
-  Package,
+  Salad,
+  DollarSign,
+  Bot,
   Truck,
-  BookText,
+  ShoppingCart,
+  History,
+  MapPin,
+  BarChart,
+  Settings,
+  User,
+  BookOpen,
   Printer,
   Globe,
   Palette,
-  Tag,
+  QrCode,
+  Package,
+  LineChart,
+  ClipboardList,
 } from "lucide-react"
-import { useState } from "react"
 
-export function Sidebar() {
+interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {}
+
+interface NavItem {
+  title: string
+  href?: string
+  icon: React.ElementType
+  items?: NavItem[]
+  isChangelog?: boolean
+}
+
+const dashboardConfig: NavItem[] = [
+  {
+    title: "Dashboard",
+    href: "/dashboard",
+    icon: LayoutDashboard,
+  },
+  {
+    title: "Inventarios",
+    icon: Package, // Changed from ChefHat to Package for inventory
+    items: [
+      {
+        title: "Recetas", // Global Dishes / Reusable Menu Items
+        href: "/dashboard/operations-hub/recipes",
+        icon: ChefHat,
+      },
+      {
+        title: "Ingredientes",
+        href: "/dashboard/operations-hub/ingredients",
+        icon: Salad,
+      },
+      {
+        title: "Ubicaciones", // Added from image
+        href: "/dashboard/operations-hub/inventory", // Assuming this maps to inventory locations
+        icon: MapPin,
+      },
+    ],
+  },
+  {
+    title: "Costos",
+    icon: DollarSign,
+    items: [
+      {
+        title: "Ingresar costos",
+        href: "/dashboard/costs",
+        icon: ClipboardList, // Changed from DollarSign to ClipboardList
+      },
+      {
+        title: "Ingresar costos con AI",
+        href: "/dashboard/smart-accounting/cost-sales-tracker", // Assuming this maps to a cost tracking page
+        icon: Bot,
+      },
+    ],
+  },
+  {
+    title: "Pedidos",
+    icon: ShoppingCart, // Changed from Truck to ShoppingCart
+    items: [
+      {
+        title: "Proveedores",
+        href: "/dashboard/orders/suppliers",
+        icon: Truck,
+      },
+      {
+        title: "Compras", // Assuming this is for new orders
+        href: "/dashboard/order-hub", // Assuming this maps to an order creation/management page
+        icon: ShoppingCart,
+      },
+      {
+        title: "Historial",
+        href: "/dashboard/menus/dishes", // Assuming this maps to order history
+        icon: History,
+      },
+    ],
+  },
+  {
+    title: "Menú",
+    icon: BookOpen,
+    items: [
+      {
+        title: "Menú digital",
+        href: "/dashboard/menu-studio/digital-menu",
+        icon: QrCode, // Changed from BookOpen to QrCode
+      },
+      {
+        title: "Menus PDF/para imprimir",
+        href: "/dashboard/menu-studio/print-designer",
+        icon: Printer,
+      },
+      {
+        title: "Sitio web",
+        href: "/dashboard/menu-studio/website-builder",
+        icon: Globe,
+      },
+      {
+        title: "Brand kit",
+        href: "/dashboard/menu-studio/brand-kit",
+        icon: Palette,
+      },
+    ],
+  },
+  {
+    title: "Informes", // Added from image
+    icon: LineChart, // Changed from BarChart to LineChart
+    items: [
+      {
+        title: "Personalizados",
+        href: "/dashboard/analytics", // Assuming this maps to analytics/custom reports
+        icon: BarChart,
+      },
+    ],
+  },
+  {
+    title: "Configuración",
+    href: "/dashboard/settings",
+    icon: Settings,
+    items: [
+      {
+        title: "Perfil",
+        href: "/dashboard/settings/profile",
+        icon: User,
+      },
+      {
+        title: "Categorías",
+        href: "/dashboard/settings/categories",
+        icon: ClipboardList,
+      },
+    ],
+  },
+]
+
+export function Sidebar({ className, ...props }: SidebarProps) {
   const pathname = usePathname()
-  const [openMenuStudio, setOpenMenuStudio] = useState(false)
-  const [openOperationsHub, setOpenOperationsHub] = useState(false)
-  const [openSettings, setOpenSettings] = useState(false)
-
-  const navItems = [
-    {
-      name: "Dashboard",
-      href: "/dashboard",
-      icon: LayoutDashboard,
-      active: pathname === "/dashboard",
-    },
-    {
-      name: "Menu Studio",
-      href: "/dashboard/menu-studio",
-      icon: Utensils,
-      active: pathname.startsWith("/dashboard/menu-studio"),
-      subItems: [
-        {
-          name: "Digital Menu Hub",
-          href: "/dashboard/menu-studio/digital-menu",
-          icon: BookText,
-          active: pathname.startsWith("/dashboard/menu-studio/digital-menu"),
-        },
-        {
-          name: "Print Menu Designer",
-          href: "/dashboard/menu-studio/print-designer",
-          icon: Printer,
-          active: pathname.startsWith("/dashboard/menu-studio/print-designer"),
-        },
-        {
-          name: "Website Builder",
-          href: "/dashboard/menu-studio/website-builder",
-          icon: Globe,
-          active: pathname.startsWith("/dashboard/menu-studio/website-builder"),
-        },
-        {
-          name: "Brand Kit",
-          href: "/dashboard/menu-studio/brand-kit",
-          icon: Palette,
-          active: pathname.startsWith("/dashboard/menu-studio/brand-kit"),
-        },
-        {
-          name: "Template Designer",
-          href: "/dashboard/menu-studio/templates",
-          icon: Palette,
-          active: pathname.startsWith("/dashboard/menu-studio/templates"),
-        },
-      ],
-    },
-    {
-      name: "Order Hub",
-      href: "/dashboard/order-hub",
-      icon: ShoppingCart,
-      active: pathname.startsWith("/dashboard/order-hub"),
-    },
-    {
-      name: "Smart Accounting",
-      href: "/dashboard/smart-accounting",
-      icon: DollarSign,
-      active: pathname.startsWith("/dashboard/smart-accounting"),
-      subItems: [
-        {
-          name: "Cost & Sales Tracker",
-          href: "/dashboard/smart-accounting/cost-sales-tracker",
-          icon: BarChart2,
-          active: pathname.startsWith("/dashboard/smart-accounting/cost-sales-tracker"),
-        },
-        // Add other accounting sub-items here
-      ],
-    },
-    {
-      name: "Growth Insights",
-      href: "/dashboard/growth-insights",
-      icon: BarChart2,
-      active: pathname.startsWith("/dashboard/growth-insights"),
-    },
-    {
-      name: "Operations Hub",
-      href: "/dashboard/operations-hub",
-      icon: ChefHat,
-      active: pathname.startsWith("/dashboard/operations-hub"),
-      subItems: [
-        {
-          name: "Recipe Management",
-          href: "/dashboard/operations-hub/recipes",
-          icon: ChefHat,
-          active: pathname.startsWith("/dashboard/operations-hub/recipes"),
-        },
-        {
-          name: "Ingredient Management",
-          href: "/dashboard/operations-hub/ingredients",
-          icon: Package,
-          active: pathname.startsWith("/dashboard/operations-hub/ingredients"),
-        },
-        {
-          name: "Supplier Directory",
-          href: "/dashboard/operations-hub/suppliers",
-          icon: Truck,
-          active: pathname.startsWith("/dashboard/operations-hub/suppliers"),
-        },
-        {
-          name: "Inventory Control",
-          href: "/dashboard/operations-hub/inventory",
-          icon: Package,
-          active: pathname.startsWith("/dashboard/operations-hub/inventory"),
-        },
-      ],
-    },
-    {
-      name: "Settings",
-      href: "/dashboard/settings",
-      icon: Settings,
-      active: pathname.startsWith("/dashboard/settings"),
-      subItems: [
-        {
-          name: "Restaurant Profile",
-          href: "/dashboard/settings/profile",
-          icon: Globe,
-          active: pathname.startsWith("/dashboard/settings/profile"),
-        },
-        {
-          name: "Category Management", // New item
-          href: "/dashboard/settings/categories",
-          icon: Tag,
-          active: pathname.startsWith("/dashboard/settings/categories"),
-        },
-        // Add other settings sub-items here
-      ],
-    },
-  ]
 
   return (
-    <aside className="w-64 bg-neutral-50 border-r border-neutral-200 p-4 flex flex-col">
-      <div className="text-2xl font-bold text-warm-700 mb-6">MenuMagic</div>
-      <nav className="flex-1 space-y-2">
-        {navItems.map((item) => (
-          <div key={item.name}>
-            {item.subItems ? (
-              <>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex items-center w-full p-3 rounded-lg text-neutral-700 hover:bg-warm-100 transition-colors duration-150 ease-in-out",
-                    item.active && "bg-warm-100 text-warm-700 font-semibold",
-                  )}
-                  onClick={() => {
-                    if (item.name === "Menu Studio") setOpenMenuStudio(!openMenuStudio)
-                    if (item.name === "Operations Hub") setOpenOperationsHub(!openOperationsHub)
-                    if (item.name === "Settings") setOpenSettings(!openSettings)
-                  }}
-                >
-                  <item.icon className="mr-3 h-5 w-5" />
-                  {item.name}
-                </button>
-                {(item.name === "Menu Studio" && openMenuStudio) ||
-                (item.name === "Operations Hub" && openOperationsHub) ||
-                (item.name === "Settings" && openSettings) ? (
-                  <div className="ml-6 mt-1 space-y-1">
-                    {item.subItems.map((subItem) => (
-                      <Link
-                        key={subItem.name}
-                        href={subItem.href}
+    <div className={cn("pb-12", className)} {...props}>
+      <div className="space-y-4 py-4">
+        <div className="px-3 py-2">
+          <h2 className="mb-2 px-4 text-lg font-semibold tracking-tight">Menú</h2>
+          <div className="space-y-1">
+            {dashboardConfig.map((item, index) => {
+              if (item.items) {
+                const defaultOpen = item.items.some((subItem) =>
+                  subItem.href ? pathname.startsWith(subItem.href) : false,
+                )
+                return (
+                  <Accordion
+                    key={item.title}
+                    type="single"
+                    collapsible
+                    defaultValue={defaultOpen ? item.title : undefined}
+                  >
+                    <AccordionItem value={item.title} className="border-b-0">
+                      <AccordionTrigger
                         className={cn(
-                          "flex items-center p-2 rounded-lg text-sm text-neutral-600 hover:bg-warm-50 transition-colors duration-150 ease-in-out",
-                          subItem.active && "bg-warm-50 text-warm-600 font-medium",
+                          "flex items-center gap-3 rounded-md px-3 py-2 text-neutral-900 transition-all hover:bg-neutral-100",
+                          defaultOpen && "bg-neutral-100",
                         )}
                       >
-                        <subItem.icon className="mr-3 h-4 w-4" />
-                        {subItem.name}
-                      </Link>
-                    ))}
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={cn(
-                  "flex items-center p-3 rounded-lg text-neutral-700 hover:bg-warm-100 transition-colors duration-150 ease-in-out",
-                  item.active && "bg-warm-100 text-warm-700 font-semibold",
-                )}
-              >
-                <item.icon className="mr-3 h-5 w-5" />
-                {item.name}
-              </Link>
-            )}
+                        <item.icon className="h-5 w-5" />
+                        {item.title}
+                      </AccordionTrigger>
+                      <AccordionContent className="pb-1 pl-4">
+                        {item.items.map((subItem) => (
+                          <Link key={subItem.title} href={subItem.href || "#"}>
+                            <span
+                              className={cn(
+                                "flex items-center gap-3 rounded-md px-3 py-2 text-neutral-500 transition-all hover:bg-neutral-100",
+                                pathname.startsWith(subItem.href || "") && "bg-neutral-100 text-neutral-900",
+                              )}
+                            >
+                              <subItem.icon className="h-5 w-5" />
+                              {subItem.title}
+                            </span>
+                          </Link>
+                        ))}
+                      </AccordionContent>
+                    </AccordionItem>
+                  </Accordion>
+                )
+              }
+              return (
+                <Link key={item.title} href={item.href || "#"}>
+                  <span
+                    className={cn(
+                      "flex items-center gap-3 rounded-md px-3 py-2 text-neutral-900 transition-all hover:bg-neutral-100",
+                      pathname === item.href && "bg-neutral-100",
+                    )}
+                  >
+                    <item.icon className="h-5 w-5" />
+                    {item.title}
+                  </span>
+                </Link>
+              )
+            })}
           </div>
-        ))}
-      </nav>
-    </aside>
+        </div>
+      </div>
+    </div>
   )
 }

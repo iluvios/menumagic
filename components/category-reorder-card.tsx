@@ -3,21 +3,74 @@
 import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { ArrowUp, ArrowDown, Loader2, Plus } from "lucide-react" // Import Plus icon
-import { updateCategoryOrder } from "@/lib/actions/category-actions" // Removed getCategoriesByType
+import { Plus, GripVertical } from "lucide-react" // Import GripVertical for drag handle
+import { updateDigitalMenuCategoryOrder } from "@/lib/actions/category-actions" // Use new action
 import { useToast } from "@/hooks/use-toast"
 
-interface Category {
-  id: number
-  name: string
-  type: string
-  order_index: number
+// DND Kit imports
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
+
+// Interface for menu-specific category
+interface DigitalMenuCategory {
+  id: number // ID of the digital_menu_categories entry
+  digital_menu_id: number
+  category_id: number // ID of the global category
+  category_name: string // Name of the global category
+  order_index: number // Menu-specific order index
 }
 
 interface CategoryReorderCardProps {
-  categories: Category[] // NEW: Receive categories as prop
-  onCategoriesUpdated: () => void // NEW: Callback to notify parent of changes
+  categories: DigitalMenuCategory[] // Receive menu-specific categories
+  onCategoriesUpdated: () => void // Callback to notify parent of changes
   onAddCategoryClick: () => void // Prop for adding category
+}
+
+// SortableItem component for DND Kit
+function SortableItem({ category }: { category: DigitalMenuCategory }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : 0, // Bring dragged item to front
+    opacity: isDragging ? 0.7 : 1, // Make dragged item slightly transparent
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center justify-between p-3 rounded-lg bg-neutral-50 border border-neutral-200 relative"
+    >
+      <div className="flex items-center gap-2">
+        <button
+          className="cursor-grab touch-action-none p-1 -ml-1" // Add touch-action-none for better mobile drag
+          {...listeners}
+          {...attributes}
+          aria-label={`Drag to reorder ${category.category_name}`}
+        >
+          <GripVertical className="h-5 w-5 text-neutral-400" />
+        </button>
+        <span className="font-medium text-neutral-800">{category.category_name}</span>
+      </div>
+      {/* Removed individual up/down buttons as DND handles reordering */}
+    </div>
+  )
 }
 
 export function CategoryReorderCard({
@@ -25,35 +78,45 @@ export function CategoryReorderCard({
   onCategoriesUpdated,
   onAddCategoryClick,
 }: CategoryReorderCardProps) {
+  console.log("[CategoryReorderCard] Props - initialCategories:", initialCategories)
   const { toast } = useToast()
-  const [categories, setCategories] = useState<Category[]>(initialCategories) // Use initialCategories
-  const [loading, setLoading] = useState(false) // No longer loading internally
-  const [lastMovedCategoryId, setLastMovedCategoryId] = useState<number | null>(null)
+  const [categories, setCategories] = useState<DigitalMenuCategory[]>(initialCategories)
+  const [isSaving, setIsSaving] = useState(false) // New state for saving status
   const [showSavedIndicator, setShowSavedIndicator] = useState(false)
-  const savedIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null) // Ref for timeout
+  const savedIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // DND Kit sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  )
 
   // Update internal state when initialCategories prop changes
   useEffect(() => {
+    // Ensure categories are sorted by order_index when prop updates
     setCategories(initialCategories.sort((a, b) => a.order_index - b.order_index))
+    console.log("[CategoryReorderCard] State - categories after useEffect:", categories)
   }, [initialCategories])
 
-  const handleSaveOrder = async (updatedCategories: Category[], movedCategoryId: number) => {
+  const handleSaveOrder = async (updatedCategories: DigitalMenuCategory[]) => {
     // Clear any existing timeout to prevent multiple indicators
     if (savedIndicatorTimeoutRef.current) {
       clearTimeout(savedIndicatorTimeoutRef.current)
     }
 
-    setLastMovedCategoryId(movedCategoryId)
-    setShowSavedIndicator(true)
+    setIsSaving(true) // Indicate saving
+    setShowSavedIndicator(true) // Show indicator immediately
 
     try {
-      const categoriesToUpdate = updatedCategories.map((cat) => ({
-        id: cat.id,
-        order_index: cat.order_index,
+      const categoriesToUpdate = updatedCategories.map((cat, idx) => ({
+        id: cat.id, // This is the digital_menu_categories ID
+        order_index: idx + 1, // Assign new order_index based on current array position
       }))
-      await updateCategoryOrder(categoriesToUpdate)
+      await updateDigitalMenuCategoryOrder(categoriesToUpdate)
       onCategoriesUpdated() // Notify parent that categories might have changed (order)
-      // Success: indicator will fade out
+      toast({ title: "Orden guardado", description: "El orden de las categorías ha sido actualizado." })
     } catch (error: any) {
       console.error("Failed to save category order:", error)
       toast({
@@ -63,38 +126,40 @@ export function CategoryReorderCard({
       })
       // On error, hide indicator immediately and revert to original order
       setShowSavedIndicator(false)
-      setLastMovedCategoryId(null)
       setCategories(initialCategories.sort((a, b) => a.order_index - b.order_index)) // Revert to prop state
     } finally {
+      setIsSaving(false) // End saving
       // Set timeout to hide indicator after a short delay
       savedIndicatorTimeoutRef.current = setTimeout(() => {
         setShowSavedIndicator(false)
-        setLastMovedCategoryId(null)
       }, 1500) // Show for 1.5 seconds
     }
   }
 
-  const moveCategory = (index: number, direction: "up" | "down") => {
-    const newCategories = [...categories]
-    const categoryToMove = newCategories[index]
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
 
-    if (direction === "up") {
-      if (index === 0) return
-      newCategories.splice(index, 1)
-      newCategories.splice(index - 1, 0, categoryToMove)
-    } else {
-      if (index === newCategories.length - 1) return
-      newCategories.splice(index, 1)
-      newCategories.splice(index + 1, 0, categoryToMove)
+    if (active.id !== over?.id) {
+      setCategories((items) => {
+        const oldIndex = items.findIndex((item) => item.id === active.id)
+        const newIndex = items.findIndex((item) => item.id === over?.id)
+
+        if (oldIndex === -1 || newIndex === -1) return items // Should not happen
+
+        const newItems = [...items]
+        const [movedItem] = newItems.splice(oldIndex, 1)
+        newItems.splice(newIndex, 0, movedItem)
+
+        // Update order_index for all items in the new order
+        const updatedCategoriesWithOrder = newItems.map((cat, idx) => ({
+          ...cat,
+          order_index: idx + 1,
+        }))
+
+        handleSaveOrder(updatedCategoriesWithOrder) // Save the new order
+        return updatedCategoriesWithOrder
+      })
     }
-
-    const updatedCategoriesWithOrder = newCategories.map((cat, idx) => ({
-      ...cat,
-      order_index: idx + 1,
-    }))
-
-    setCategories(updatedCategoriesWithOrder)
-    handleSaveOrder(updatedCategoriesWithOrder, categoryToMove.id) // Pass the ID of the moved category
   }
 
   return (
@@ -106,57 +171,33 @@ export function CategoryReorderCard({
         </div>
         <Button
           className="bg-warm-500 hover:bg-warm-600 text-white shadow-md whitespace-nowrap"
-          onClick={onAddCategoryClick} // Use the new prop
+          onClick={onAddCategoryClick}
+          disabled={isSaving}
         >
           <Plus className="mr-2 h-4 w-4" />
-          Añadir Nueva Categoría
+          Añadir/Gestionar Categorías
         </Button>
       </CardHeader>
       <CardContent className="space-y-2 max-h-[40vh] overflow-y-auto">
-        {loading ? ( // This loading state will now always be false, as parent handles loading
-          <div className="text-center py-8 text-neutral-500">
-            <Loader2 className="mx-auto h-8 w-8 animate-spin mb-3 text-neutral-400" />
-            <p>Cargando categorías...</p>
-          </div>
-        ) : categories.length === 0 ? (
+        {categories.length === 0 ? (
           <div className="text-center py-8 text-neutral-500">
             <p>No hay categorías de menú para reordenar.</p>
-            <p className="text-sm">Crea algunas en la sección de elementos del menú.</p>
+            <p className="text-sm">Añade algunas usando el botón de arriba.</p>
           </div>
         ) : (
-          categories.map((category, index) => (
-            <div
-              key={category.id}
-              className="flex items-center justify-between p-3 rounded-lg bg-neutral-50 border border-neutral-200 relative" // Added relative for positioning
-            >
-              <span className="font-medium text-neutral-800">{category.name}</span>
-              {lastMovedCategoryId === category.id && showSavedIndicator && (
-                <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-full opacity-0 animate-fade-in-out">
-                  Guardado!
-                </span>
-              )}
-              <div className="flex items-center space-x-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => moveCategory(index, "up")}
-                  disabled={index === 0}
-                >
-                  <ArrowUp className="h-4 w-4 text-neutral-500" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={() => moveCategory(index, "down")}
-                  disabled={index === categories.length - 1}
-                >
-                  <ArrowDown className="h-4 w-4 text-neutral-500" />
-                </Button>
-              </div>
-            </div>
-          ))
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={categories.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+              {categories.map((category) => {
+                console.log("[CategoryReorderCard] Rendering category:", category.category_name, "ID:", category.id)
+                return <SortableItem key={category.id} category={category} />
+              })}
+            </SortableContext>
+          </DndContext>
+        )}
+        {showSavedIndicator && (
+          <div className="absolute bottom-4 right-4 text-xs font-semibold text-green-600 bg-green-50 px-3 py-1.5 rounded-full shadow-md animate-fade-in-out">
+            Guardado!
+          </div>
         )}
       </CardContent>
     </Card>

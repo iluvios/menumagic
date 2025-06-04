@@ -20,13 +20,8 @@ import {
 } from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useToast } from "@/hooks/use-toast"
-import {
-  getIngredients,
-  createIngredient,
-  updateIngredient,
-  deleteIngredient,
-  getCategoriesByType,
-} from "@/lib/actions/ingredient-actions"
+import { getIngredients, createIngredient, updateIngredient, deleteIngredient } from "@/lib/actions/ingredient-actions"
+import { getCategoriesByType } from "@/lib/actions/category-actions" // Corrected import
 import { formatCurrency } from "@/lib/utils/formatters" // Corrected import
 import { Plus, Edit, Trash2, Package, XCircle, Search } from "lucide-react"
 
@@ -40,6 +35,8 @@ interface Ingredient {
   category_name?: string
   supplier_id?: number
   supplier_name?: string
+  current_stock?: number // Added for display
+  low_stock_threshold?: number // Added for display
 }
 
 interface Category {
@@ -295,6 +292,15 @@ export default function IngredientManagementPage() {
                         {ingredient.description || "Sin descripción"}
                       </p>
                       <p className="text-xs text-neutral-500">Categoría: {ingredient.category_name || "N/A"}</p>
+                      {ingredient.current_stock !== undefined && (
+                        <p className="text-xs text-neutral-500">
+                          Stock: {ingredient.current_stock} {ingredient.unit_of_measure}
+                          {ingredient.low_stock_threshold !== undefined &&
+                            ingredient.current_stock <= ingredient.low_stock_threshold && (
+                              <span className="text-red-500 ml-1">(Bajo stock)</span>
+                            )}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center space-x-2">

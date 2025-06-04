@@ -1,24 +1,29 @@
 "use client"
 
-import type React from "react" // Ensure React is imported for client components
-import { useState, useEffect } from "react" // Import useState and useEffect
+import type React from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog"
-import { XCircle, Loader2, PlusCircle } from "lucide-react" // Add Loader2 and PlusCircle
-import { createMenuItem, updateMenuItem } from "@/lib/actions/menu-studio-actions" // Import actions
-import { createCategory } from "@/lib/actions/category-actions" // Import createCategory
-import { useToast } from "@/hooks/use-toast" // Import toast
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { useToast } from "@/hooks/use-toast"
+import {
+  createMenuItem,
+  updateMenuItem,
+  getReusableMenuItems,
+  createReusableMenuItem,
+  updateReusableMenuItem,
+} from "@/lib/actions/menu-studio-actions"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Check, ChefHat, Settings } from "lucide-react"
 
 interface MenuItem {
   id: number
@@ -27,22 +32,38 @@ interface MenuItem {
   price: number
   image_url?: string
   menu_category_id: number
+  category_name?: string
+  reusable_menu_item_id?: number
 }
 
-interface Category {
+interface GlobalCategory {
   id: number
   name: string
-  type: string // Ensure type is included for category creation
+  type: string
+  order_index: number
+}
+
+interface ReusableMenuItem {
+  id: number
+  name: string
+  description: string
+  price: number
+  image_url?: string
+  menu_category_id: number
+  category_name?: string
+  ingredient_count: number
 }
 
 interface MenuItemFormDialogProps {
   isOpen: boolean
-  onOpenChange: (open: boolean) => void
-  currentMenuItem: MenuItem | null // For editing
-  digitalMenuId: number // The ID of the menu this item belongs to
-  categories: Category[]
-  onSaveSuccess: () => void // Callback to refresh parent list
-  onCategoriesUpdated: () => void // New callback to refresh categories in parent
+  onOpenChange: (isOpen: boolean) => void
+  currentMenuItem?: MenuItem | null
+  digitalMenuId?: number
+  categories: GlobalCategory[]
+  onSaveSuccess: () => void
+  onCategoriesUpdated: () => void
+  isReusableItemForm?: boolean
+  onOpenCategoryManager?: () => void // New prop to open category manager
 }
 
 export function MenuItemFormDialog({
@@ -52,328 +73,446 @@ export function MenuItemFormDialog({
   digitalMenuId,
   categories,
   onSaveSuccess,
-  onCategoriesUpdated, // Destructure new prop
+  onCategoriesUpdated,
+  isReusableItemForm = false,
+  onOpenCategoryManager,
 }: MenuItemFormDialogProps) {
   const { toast } = useToast()
-  const [formData, setFormData] = useState({
-    name: currentMenuItem?.name || "",
-    description: currentMenuItem?.description || "",
-    price: currentMenuItem?.price || 0,
-    menu_category_id: currentMenuItem?.menu_category_id?.toString() || "",
-    imageFile: null as File | null,
-    current_image_url: currentMenuItem?.image_url || null,
-  })
+  const [activeTab, setActiveTab] = useState<string>("new")
+  const [name, setName] = useState(currentMenuItem?.name || "")
+  const [description, setDescription] = useState(currentMenuItem?.description || "")
+  const [price, setPrice] = useState(currentMenuItem?.price.toString() || "")
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | string>(currentMenuItem?.menu_category_id || "")
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imageUrlPreview, setImageUrlPreview] = useState<string | null>(currentMenuItem?.image_url || null)
 
-  const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false)
-  const [newCategoryName, setNewCategoryName] = useState("")
-  const [isCategoryCreating, setIsCategoryCreating] = useState(false)
+  // New state for reusable menu items
+  const [reusableMenuItems, setReusableMenuItems] = useState<ReusableMenuItem[]>([])
+  const [selectedReusableItemId, setSelectedReusableItemId] = useState<number | null>(null)
+  const [isLoadingReusableItems, setIsLoadingReusableItems] = useState(false)
 
-  // Reset form data when dialog opens/currentMenuItem changes
+  // Ensure categories is always an array
+  const safeCategories = categories || []
+
   useEffect(() => {
-    setFormData({
-      name: currentMenuItem?.name || "",
-      description: currentMenuItem?.description || "",
-      price: currentMenuItem?.price || 0,
-      menu_category_id: currentMenuItem?.menu_category_id?.toString() || "",
-      imageFile: null,
-      current_image_url: currentMenuItem?.image_url || null,
-    })
-  }, [currentMenuItem, isOpen])
-
-  const [state, setState] = useState<{ success?: boolean; message?: string; pending?: boolean } | null>(null)
-
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setState({ pending: true })
-
-    const name = formData.name
-    const description = formData.description
-    const price = formData.price
-    const menu_category_id = Number.parseInt(formData.menu_category_id)
-    const imageFile = formData.imageFile
-
-    if (!name || !description || isNaN(price) || !menu_category_id) {
-      setState({ success: false, message: "Todos los campos obligatorios deben ser completados." })
-      toast({
-        title: "Error",
-        description: "Por favor, completa todos los campos obligatorios.",
-        variant: "destructive",
-      })
-      setState({ pending: false })
-      return
-    }
-
-    console.log("Submitting menu item:", {
-      digitalMenuId,
-      name,
-      description,
-      price,
-      menu_category_id,
-      imageFile: imageFile?.name,
-      isEditing: !!currentMenuItem,
-      currentMenuItemId: currentMenuItem?.id,
-    })
-
-    try {
+    if (isOpen) {
+      // Reset form when dialog opens
       if (currentMenuItem) {
-        // Update existing item
-        await updateMenuItem(
-          currentMenuItem.id,
-          {
-            name,
-            description,
-            price,
-            menu_category_id,
-          },
-          // Pass imageFile if new one selected, or null if current image cleared, otherwise undefined (no change)
-          imageFile && imageFile.size > 0 ? imageFile : formData.current_image_url === null ? null : undefined,
-        )
-        toast({ title: "Éxito", description: "Platillo actualizado exitosamente." })
+        setName(currentMenuItem.name || "")
+        setDescription(currentMenuItem.description || "")
+        setPrice(currentMenuItem.price.toString() || "")
+        setSelectedCategoryId(currentMenuItem.menu_category_id || "")
+        setImageFile(null)
+        setImageUrlPreview(currentMenuItem.image_url || null)
+
+        // If editing an item that's linked to a reusable item, switch to the "existing" tab
+        if (!isReusableItemForm && currentMenuItem.reusable_menu_item_id) {
+          setActiveTab("existing")
+          setSelectedReusableItemId(currentMenuItem.reusable_menu_item_id)
+        } else {
+          setActiveTab("new")
+          setSelectedReusableItemId(null)
+        }
       } else {
-        // Create new item
-        await createMenuItem(
-          {
-            digital_menu_id: digitalMenuId,
-            name,
-            description,
-            price,
-            menu_category_id,
-          },
-          imageFile && imageFile.size > 0 ? imageFile : undefined,
-        )
-        toast({ title: "Éxito", description: "Platillo añadido exitosamente." })
+        // New item defaults
+        setName("")
+        setDescription("")
+        setPrice("")
+        setSelectedCategoryId("")
+        setImageFile(null)
+        setImageUrlPreview(null)
+        setActiveTab("new")
+        setSelectedReusableItemId(null)
       }
-      onSaveSuccess() // Trigger parent to re-fetch data
-      onOpenChange(false) // Close the dialog
-      setState({ success: true, pending: false })
-    } catch (err: any) {
-      console.error("Form action error:", err)
+
+      // Fetch reusable menu items when dialog opens, if not a reusable item form itself
+      if (!isReusableItemForm) {
+        fetchReusableMenuItems()
+      }
+    }
+  }, [isOpen, currentMenuItem, isReusableItemForm])
+
+  const fetchReusableMenuItems = async () => {
+    setIsLoadingReusableItems(true)
+    try {
+      const items = await getReusableMenuItems()
+      setReusableMenuItems(items)
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: err.message || "No se pudo guardar el platillo. Inténtalo de nuevo.",
+        description: error.message || "No se pudieron cargar los platillos reutilizables.",
         variant: "destructive",
       })
-      setState({ success: false, message: err.message || "No se pudo guardar el platillo.", pending: false })
+    } finally {
+      setIsLoadingReusableItems(false)
     }
   }
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFormData({ ...formData, imageFile: e.target.files[0], current_image_url: null }) // Clear current URL if new file selected
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setImageFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setImageUrlPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    } else {
+      setImageFile(null)
+      setImageUrlPreview(currentMenuItem?.image_url || null)
     }
   }
 
   const handleRemoveImage = () => {
-    setFormData({ ...formData, imageFile: null, current_image_url: null }) // Explicitly set to null to signal removal
+    setImageFile(null)
+    setImageUrlPreview(null)
   }
 
-  const handleCreateCategory = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!newCategoryName.trim()) {
-      toast({ title: "Error", description: "El nombre de la categoría no puede estar vacío.", variant: "destructive" })
-      return
+  const handleOpenCategoryManager = () => {
+    if (onOpenCategoryManager) {
+      onOpenCategoryManager()
     }
-    setIsCategoryCreating(true)
-    try {
-      const newCat = await createCategory({ name: newCategoryName, type: "menu_item" }) // Using "menu_item"
-      toast({ title: "Éxito", description: `Categoría "${newCat.name}" creada.` })
-      onCategoriesUpdated() // Notify parent to re-fetch categories
-      setNewCategoryName("")
-      setIsCategoryDialogOpen(false)
-      // Optionally, pre-select the new category in the main form
-      setFormData((prev) => ({ ...prev, menu_category_id: newCat.id.toString() }))
-    } catch (error: any) {
-      console.error("Error creating category:", error)
+  }
+
+  const handleSelectReusableItem = (item: ReusableMenuItem) => {
+    setSelectedReusableItemId(item.id)
+    // Pre-fill form with reusable item data
+    setName(item.name)
+    setDescription(item.description)
+    setPrice(item.price.toString())
+    if (item.menu_category_id) {
+      setSelectedCategoryId(item.menu_category_id)
+    }
+    setImageUrlPreview(item.image_url || null)
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!name || !price || !selectedCategoryId) {
       toast({
         title: "Error",
-        description: error.message || "No se pudo crear la categoría.",
+        description: "Por favor, completa todos los campos obligatorios (Nombre, Precio, Categoría).",
         variant: "destructive",
       })
-    } finally {
-      setIsCategoryCreating(false)
+      return
+    }
+
+    const parsedPrice = Number.parseFloat(price)
+    if (isNaN(parsedPrice)) {
+      toast({
+        title: "Error",
+        description: "El precio debe ser un número válido.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      if (isReusableItemForm) {
+        // Handle Reusable Item (Global Dish/Recipe) creation/update
+        const reusableItemData = {
+          name,
+          description,
+          price: parsedPrice,
+          menu_category_id: Number(selectedCategoryId),
+        }
+        if (currentMenuItem) {
+          await updateReusableMenuItem(currentMenuItem.id, {
+            ...reusableItemData,
+            image_url: imageFile === null ? null : imageUrlPreview,
+          })
+          toast({ title: "Éxito", description: "Platillo global actualizado correctamente." })
+        } else {
+          await createReusableMenuItem({
+            ...reusableItemData,
+            image_url: imageUrlPreview,
+          })
+          toast({ title: "Éxito", description: "Platillo global creado correctamente." })
+        }
+      } else {
+        // Handle Digital Menu Item creation/update
+        if (!digitalMenuId) {
+          toast({
+            title: "Error",
+            description: "No hay un menú digital seleccionado. Por favor, selecciona un menú primero.",
+            variant: "destructive",
+          })
+          return
+        }
+        const menuItemData = {
+          digital_menu_id: digitalMenuId,
+          name,
+          description,
+          price: parsedPrice,
+          menu_category_id: Number(selectedCategoryId),
+          reusable_menu_item_id: activeTab === "existing" ? selectedReusableItemId : undefined,
+        }
+        if (currentMenuItem) {
+          await updateMenuItem(currentMenuItem.id, menuItemData, imageFile === null ? null : imageFile)
+          toast({ title: "Éxito", description: "Platillo actualizado correctamente." })
+        } else {
+          await createMenuItem(menuItemData, imageFile || undefined)
+          toast({ title: "Éxito", description: "Platillo creado correctamente." })
+        }
+      }
+      onSaveSuccess()
+      onOpenChange(false)
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "No se pudo guardar el platillo.",
+        variant: "destructive",
+      })
     }
   }
 
-  return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="sm:max-w-[600px] bg-white p-6 rounded-lg shadow-xl"
-        aria-describedby="dialog-description"
-      >
-        {" "}
-        {/* Added aria-describedby */}
-        <DialogHeader>
-          <DialogTitle>{currentMenuItem ? "Editar Elemento del Menú" : "Crear Nuevo Elemento"}</DialogTitle>
-          <DialogDescription id="dialog-description">
-            {" "}
-            {/* Added id */}
-            {currentMenuItem
-              ? "Realiza cambios en este elemento del menú."
-              : "Añade un nuevo platillo o bebida a tu menú digital."}
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="grid gap-4 py-4">
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="item-name" className="text-right">
-              Nombre
-            </Label>
-            <Input
-              id="item-name"
-              name="name"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="col-span-3"
-              required
-            />
+  const renderFormContent = (isExistingTab = false) => (
+    <form onSubmit={handleSubmit} className="space-y-4 py-4">
+      {isExistingTab && (
+        <div className="mb-4">
+          <Label className="text-sm font-medium mb-2 block">Selecciona un platillo existente</Label>
+          {isLoadingReusableItems ? (
+            <div className="text-center py-4">Cargando platillos...</div>
+          ) : reusableMenuItems.length === 0 ? (
+            <div className="text-center py-4 text-gray-500">
+              No hay platillos reutilizables disponibles. Crea algunos primero.
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {reusableMenuItems.map((item) => (
+                <div
+                  key={item.id}
+                  className={`p-3 rounded-md border cursor-pointer flex items-center gap-3 ${
+                    selectedReusableItemId === item.id ? "border-primary bg-primary/10" : "border-gray-200"
+                  }`}
+                  onClick={() => handleSelectReusableItem(item)}
+                >
+                  {selectedReusableItemId === item.id && <Check className="h-5 w-5 text-primary flex-shrink-0" />}
+                  <div className="flex-grow">
+                    <div className="font-medium">{item.name}</div>
+                    <div className="text-sm text-gray-500 flex items-center gap-1">
+                      <span>${item.price.toFixed(2)}</span>
+                      {item.category_name && (
+                        <>
+                          <span>•</span>
+                          <span>{item.category_name}</span>
+                        </>
+                      )}
+                      {item.ingredient_count > 0 && (
+                        <>
+                          <span>•</span>
+                          <span className="flex items-center gap-1">
+                            <ChefHat className="h-3 w-3" />
+                            {item.ingredient_count} ingredientes
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    {item.description && (
+                      <div className="text-sm text-gray-500 mt-1 line-clamp-2">{item.description}</div>
+                    )}
+                  </div>
+                  {item.image_url && (
+                    <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0">
+                      <img
+                        src={item.image_url || "/placeholder.svg"}
+                        alt={item.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(!isExistingTab || selectedReusableItemId) && (
+        <>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="name" className="text-right">
+                Nombre *
+              </Label>
+              <Input
+                id="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Nombre del platillo"
+                required
+                disabled={isExistingTab}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="price" className="text-right">
+                Precio *
+              </Label>
+              <Input
+                id="price"
+                type="number"
+                step="0.01"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="0.00"
+                required
+                disabled={isExistingTab}
+              />
+            </div>
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="item-description" className="text-right">
+
+          <div className="space-y-2">
+            <Label htmlFor="description" className="text-right">
               Descripción
             </Label>
             <Textarea
-              id="item-description"
-              name="description"
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="col-span-3"
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Descripción del platillo"
               rows={3}
+              disabled={isExistingTab}
             />
           </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="item-price" className="text-right">
-              Precio
+
+          <div className="space-y-2">
+            <Label htmlFor="category" className="text-right">
+              Categoría *
             </Label>
-            <Input
-              id="item-price"
-              name="price"
-              type="number"
-              step="0.01"
-              value={formData.price}
-              onChange={(e) => setFormData({ ...formData, price: Number.parseFloat(e.target.value) })}
-              className="col-span-3"
-              required
-            />
-          </div>
-          <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="item-category" className="text-right">
-              Categoría
-            </Label>
-            <div className="col-span-3 flex gap-2">
-              <Select
-                name="menu_category_id"
-                value={formData.menu_category_id}
-                onValueChange={(value) => setFormData({ ...formData, menu_category_id: value })}
+            <div className="flex space-x-2">
+              <select
+                id="category"
+                value={selectedCategoryId}
+                onChange={(e) => setSelectedCategoryId(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 required
               >
-                <SelectTrigger className="flex-grow">
-                  <SelectValue placeholder="Selecciona una categoría" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.map((category) => (
-                    <SelectItem key={category.id.toString()} value={category.id.toString()}>
-                      {" "}
-                      {/* Ensure key is unique and string */}
-                      {category.name}
-                    </SelectItem>
+                <option value="">Selecciona una categoría</option>
+                {safeCategories
+                  .filter((cat) => cat.type === "menu_item")
+                  .map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
                   ))}
-                </SelectContent>
-              </Select>
-              <Button type="button" variant="outline" size="icon" onClick={() => setIsCategoryDialogOpen(true)}>
-                <PlusCircle className="h-4 w-4" />
-                <span className="sr-only">Crear nueva categoría</span>
-              </Button>
+              </select>
+              {onOpenCategoryManager && (
+                <Button type="button" variant="outline" onClick={handleOpenCategoryManager}>
+                  <Settings className="h-4 w-4" />
+                </Button>
+              )}
             </div>
+            {safeCategories.filter((cat) => cat.type === "menu_item").length === 0 && (
+              <p className="text-sm text-gray-500">
+                No hay categorías disponibles. Usa el botón de configuración para gestionar categorías.
+              </p>
+            )}
           </div>
-          <div className="grid grid-cols-4 items-start gap-4">
-            <Label htmlFor="item-image" className="text-right pt-2">
+
+          <div className="space-y-2">
+            <Label htmlFor="image" className="text-right">
               Imagen
             </Label>
-            <div className="col-span-3 space-y-2">
-              <Input
-                id="item-image"
-                name="imageFile"
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="text-sm"
-              />
-              {(formData.imageFile || formData.current_image_url) && (
-                <div className="mt-2 relative w-32 h-32">
+            <div className="flex flex-col space-y-2">
+              {imageUrlPreview && (
+                <div className="relative w-full h-40 bg-gray-100 rounded-md overflow-hidden">
                   <img
-                    src={
-                      formData.imageFile
-                        ? URL.createObjectURL(formData.imageFile)
-                        : formData.current_image_url || "/placeholder.svg"
-                    }
-                    alt="Vista previa"
-                    className="rounded-md object-cover w-full h-full"
+                    src={imageUrlPreview || "/placeholder.svg"}
+                    alt="Preview"
+                    className="w-full h-full object-cover"
                   />
                   <Button
                     type="button"
                     variant="destructive"
-                    size="icon"
-                    className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
+                    size="sm"
+                    className="absolute top-2 right-2"
                     onClick={handleRemoveImage}
+                    disabled={isExistingTab}
                   >
-                    <XCircle className="h-4 w-4" />
+                    Eliminar
                   </Button>
                 </div>
               )}
-            </div>
-          </div>
-          {state?.message && (
-            <p className={`text-sm ${state.success ? "text-green-600" : "text-red-600"}`}>{state.message}</p>
-          )}
-          <DialogFooter>
-            <Button type="submit" className="bg-warm-500 hover:bg-warm-600 text-white" disabled={state?.pending}>
-              {state?.pending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Guardando...
-                </>
-              ) : currentMenuItem ? (
-                "Guardar cambios"
-              ) : (
-                "Crear Elemento"
-              )}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-
-      {/* New Category Dialog */}
-      <Dialog open={isCategoryDialogOpen} onOpenChange={setIsCategoryDialogOpen}>
-        <DialogContent className="sm:max-w-[400px] bg-white p-6 rounded-lg shadow-xl">
-          <DialogHeader>
-            <DialogTitle>Crear Nueva Categoría</DialogTitle>
-            <DialogDescription>Añade una nueva categoría para tus elementos del menú.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleCreateCategory} className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="new-category-name" className="text-right">
-                Nombre
-              </Label>
               <Input
-                id="new-category-name"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                className="col-span-3"
-                required
+                id="image"
+                type="file"
+                accept="image/*"
+                onChange={handleImageChange}
+                className={imageUrlPreview ? "hidden" : ""}
+                disabled={isExistingTab}
               />
             </div>
-            <DialogFooter>
-              <Button type="submit" className="bg-warm-500 hover:bg-warm-600 text-white" disabled={isCategoryCreating}>
-                {isCategoryCreating ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creando...
-                  </>
-                ) : (
-                  "Crear Categoría"
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </>
+      )}
+
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          Cancelar
+        </Button>
+        <Button
+          type="submit"
+          disabled={
+            (isExistingTab && (!selectedReusableItemId || !selectedCategoryId)) ||
+            (!isExistingTab && (!name || !price || !selectedCategoryId))
+          }
+        >
+          {isReusableItemForm
+            ? currentMenuItem
+              ? "Actualizar Global"
+              : "Crear Global"
+            : currentMenuItem
+              ? "Actualizar"
+              : "Añadir al Menú"}
+        </Button>
+      </DialogFooter>
+    </form>
+  )
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[600px] bg-white p-6 rounded-lg shadow-xl">
+        <DialogHeader>
+          <DialogTitle>
+            {isReusableItemForm
+              ? currentMenuItem
+                ? "Editar Platillo Global"
+                : "Nuevo Platillo Global"
+              : currentMenuItem
+                ? "Editar Platillo"
+                : "Nuevo Platillo"}
+          </DialogTitle>
+          <DialogDescription>
+            {isReusableItemForm
+              ? currentMenuItem
+                ? "Actualiza los detalles de este platillo global (receta)."
+                : "Añade un nuevo platillo global que puede ser usado en múltiples menús y tener ingredientes."
+              : currentMenuItem
+                ? "Actualiza los detalles del platillo en tu menú."
+                : "Añade un nuevo platillo a tu menú digital."}
+          </DialogDescription>
+        </DialogHeader>
+
+        {isReusableItemForm ? (
+          renderFormContent()
+        ) : (
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="new">Crear Nuevo</TabsTrigger>
+              <TabsTrigger value="existing">Usar Platillo Existente</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="new" className="mt-0">
+              {renderFormContent()}
+            </TabsContent>
+
+            <TabsContent value="existing" className="mt-0">
+              {renderFormContent(true)}
+            </TabsContent>
+          </Tabs>
+        )}
+      </DialogContent>
     </Dialog>
   )
 }
