@@ -126,7 +126,7 @@ export function QrDisplayDialog({
             </div>
           ) : generatedQrCodeDataUrl ? (
             <img
-              src={generatedQrCodeDataUrl || "/placeholder.svg"}
+              src={generatedQrCodeDataUrl || ""} // Empty string fallback
               alt={`QR Code for ${menuName}`}
               className="h-48 w-48 rounded-lg"
             />
