@@ -22,7 +22,8 @@ interface MenuTemplatesSectionProps {
   selectedTemplateId: number | null
   onSelectTemplate: (templateId: number) => void
   onApplyTemplate: (templateId: number) => void
-  onCustomizeTemplate: (templateId: number) => void // Add this line
+  onCustomizeTemplate: (templateId: number) => void
+  onGenerateQr: (menuUrl: string) => void // Add this line
 }
 
 export function MenuTemplatesSection({
@@ -31,7 +32,8 @@ export function MenuTemplatesSection({
   selectedTemplateId,
   onSelectTemplate,
   onApplyTemplate,
-  onCustomizeTemplate, // Add this line
+  onCustomizeTemplate,
+  onGenerateQr, // Add this line
 }: MenuTemplatesSectionProps) {
   if (!selectedMenu) return null // Only show if a menu is selected
 
@@ -72,12 +74,16 @@ export function MenuTemplatesSection({
         {selectedTemplateId && (
           <div className="mt-4 flex justify-between items-center">
             <Button variant="outline" size="sm" asChild>
-              <a href={`/menu/${selectedMenu?.id}`} target="_blank" rel="noopener noreferrer">
+              {/* Removed target="_blank" and rel="noopener noreferrer" */}
+              <a href={`/menu/${selectedMenu?.id}`}>
                 <QrCode className="mr-2 h-4 w-4" />
                 Ver Menú
               </a>
             </Button>
             <div className="flex gap-2">
+              <Button onClick={() => onGenerateQr(`/menu/${selectedMenu?.id}`)} variant="secondary">
+                Generar QR
+              </Button>
               <Button onClick={() => onCustomizeTemplate(selectedTemplateId)} variant="secondary">
                 Personalizar
               </Button>

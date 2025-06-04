@@ -3,7 +3,7 @@
 import { notFound } from "next/navigation"
 import { getDigitalMenuWithTemplate, getMenuItemsByMenuId } from "@/lib/actions/menu-studio-actions"
 import { getBrandKit } from "@/lib/actions/brand-kit-actions"
-import { formatCurrency } from "@/lib/utils/formatters"
+import { formatCurrency } from "@/lib/db" // Import formatCurrency from lib/db
 import { QrCode, MapPin, Clock, Phone } from "lucide-react"
 
 interface PageProps {

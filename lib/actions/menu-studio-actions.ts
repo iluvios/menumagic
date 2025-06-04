@@ -5,8 +5,6 @@ import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
 import { put, del } from "@vercel/blob"
 
-// Removed redundant neon initialization and DATABASE_URL check from here
-
 // Helper to upload image to Vercel Blob
 async function uploadImageToBlob(file: File | undefined | null, folder: string) {
   if (!file) return null // No file provided, return null
