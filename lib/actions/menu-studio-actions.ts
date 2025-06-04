@@ -102,4 +102,5 @@ export {
   generateMenuFromImage,
   generateMenuFromText,
   generateMenuSuggestions,
+  mockAiMenuUpload
 } from "./ai-menu-actions"

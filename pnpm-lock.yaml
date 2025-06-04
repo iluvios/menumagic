@@ -189,6 +189,9 @@ importers:
         specifier: latest
         version: 3.25.51
     devDependencies:
+      '@types/nanoid':
+        specifier: ^3.0.0
+        version: 3.0.0
       '@types/node':
         specifier: ^22
         version: 22.0.0
@@ -1192,6 +1195,10 @@ packages:
 
   '@types/diff-match-patch@1.0.36':
     resolution: {integrity: sha512-xFdR6tkm0MWvBfO8xXCSsinYxHcqkQUlcHeSpMC2ukzOb6lwQAfDmW+Qt0AvlGd8HpsS28qKsB+oPeJn9I39jg==}
+
+  '@types/nanoid@3.0.0':
+    resolution: {integrity: sha512-UXitWSmXCwhDmAKe7D3hNQtQaHeHt5L8LO1CB8GF8jlYVzOv5cBWDNqiJ+oPEWrWei3i3dkZtHY/bUtd0R/uOQ==}
+    deprecated: This is a stub types definition. nanoid provides its own type definitions, so you do not need this installed.
 
   '@types/node@22.0.0':
     resolution: {integrity: sha512-VT7KSYudcPOzP5Q0wfbowyNLaVR8QWUdw+088uFWwfvpY6uCWaXpqV6ieLAu9WBcnTa7H4Z5RLK8I5t2FuOcqw==}
@@ -3164,6 +3171,10 @@ snapshots:
   '@types/d3-timer@3.0.2': {}
 
   '@types/diff-match-patch@1.0.36': {}
+
+  '@types/nanoid@3.0.0':
+    dependencies:
+      nanoid: 5.1.5
 
   '@types/node@22.0.0':
     dependencies:

@@ -34,6 +34,33 @@ export async function getDigitalMenus() {
   }
 }
 
+export async function getDigitalMenuById(id: number) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession();
+    if (!restaurantId) {
+      throw new Error("Authentication required.");
+    }
+    const result = await sql`
+      SELECT 
+        dm.id, 
+        dm.name, 
+        dm.status, 
+        dm.qr_code_url, 
+        dm.created_at, 
+        dm.updated_at, 
+        dm.template_id,
+        mt.name as template_name
+      FROM digital_menus dm
+      LEFT JOIN menu_templates mt ON dm.template_id = mt.id
+      WHERE dm.id = ${id} AND dm.restaurant_id = ${restaurantId}
+    `;
+    return result[0] || null;
+  } catch (error) {
+    console.error(`Error fetching digital menu by ID ${id}:`, error);
+    throw new Error("Failed to fetch digital menu by ID.");
+  }
+}
+
 export async function getDigitalMenuWithTemplate(menuId: number) {
   try {
     const query = await sql`
@@ -164,5 +191,23 @@ export async function uploadQrCodeForDigitalMenu(menuId: number, base64Image: st
   } catch (error) {
     console.error("Error uploading QR code:", error)
     throw new Error("Failed to upload QR code.")
+  }
+}
+
+export async function getDigitalMenuQrCodeUrl(menuId: number): Promise<string | null> {
+  try {
+    const restaurantId = await getRestaurantIdFromSession();
+    if (!restaurantId) {
+      throw new Error("Authentication required.");
+    }
+    const result = await sql`
+      SELECT qr_code_url
+      FROM digital_menus 
+      WHERE id = ${menuId} AND restaurant_id = ${restaurantId}
+    `;
+    return result[0]?.qr_code_url || null;
+  } catch (error) {
+    console.error(`Error fetching QR code URL for menu ID ${menuId}:`, error);
+    throw new Error("Failed to fetch QR code URL.");
   }
 }
