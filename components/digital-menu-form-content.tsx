@@ -21,6 +21,7 @@ interface DigitalMenuFormContentProps {
 
 export function DigitalMenuFormContent({ selectedMenu, menus, onSubmit }: DigitalMenuFormContentProps) {
   const isEditing = selectedMenu && menus.some((m) => m.id === selectedMenu.id)
+  console.log("DigitalMenuFormContent render - selectedMenu:", selectedMenu, "isEditing:", isEditing)
 
   return (
     <>

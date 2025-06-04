@@ -1,6 +1,6 @@
 "use server"
 
-import { sql } from "@/lib/db"
+import { sql } from "@/lib/db" // Ensure this import is correct
 import bcrypt from "bcryptjs"
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
@@ -66,7 +66,8 @@ export async function getCurrentUserAndRestaurant() {
     return { user, restaurant }
   } catch (error) {
     console.error("Error fetching current user and restaurant:", error)
-    return { user: null, restaurant: null }
+    // Re-throw or return a specific error to indicate database connection failure
+    throw new Error("Error connecting to database: " + (error as Error).message)
   }
 }
 

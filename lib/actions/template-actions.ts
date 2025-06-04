@@ -5,7 +5,14 @@ import { revalidatePath } from "next/cache"
 import { put } from "@vercel/blob"
 import type { PutBlobResult } from "@vercel/blob"
 
-const sql = neon(process.env.DATABASE_URL!)
+const databaseUrl = process.env.DATABASE_URL
+
+if (!databaseUrl) {
+  console.error("DATABASE_URL is not set. Please ensure it's configured in your environment variables.")
+  throw new Error("Database connection failed: DATABASE_URL is missing.")
+}
+
+const sql = neon(databaseUrl)
 
 export interface MenuTemplate {
   id: number

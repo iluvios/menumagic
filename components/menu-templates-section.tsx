@@ -22,6 +22,7 @@ interface MenuTemplatesSectionProps {
   selectedTemplateId: number | null
   onSelectTemplate: (templateId: number) => void
   onApplyTemplate: (templateId: number) => void
+  onCustomizeTemplate: (templateId: number) => void // Add this line
 }
 
 export function MenuTemplatesSection({
@@ -30,6 +31,7 @@ export function MenuTemplatesSection({
   selectedTemplateId,
   onSelectTemplate,
   onApplyTemplate,
+  onCustomizeTemplate, // Add this line
 }: MenuTemplatesSectionProps) {
   if (!selectedMenu) return null // Only show if a menu is selected
 
@@ -69,16 +71,23 @@ export function MenuTemplatesSection({
         </div>
         {selectedTemplateId && (
           <div className="mt-4 flex justify-between items-center">
-            <Button variant="outline" size="sm" className="hidden sm:flex">
-              <QrCode className="mr-2 h-4 w-4" />
-              Generar QR
+            <Button variant="outline" size="sm" asChild>
+              <a href={`/menu/${selectedMenu?.id}`} target="_blank" rel="noopener noreferrer">
+                <QrCode className="mr-2 h-4 w-4" />
+                Ver Menú
+              </a>
             </Button>
-            <Button
-              onClick={() => onApplyTemplate(selectedTemplateId)}
-              className="bg-warm-500 hover:bg-warm-600 text-white"
-            >
-              Aplicar Plantilla
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={() => onCustomizeTemplate(selectedTemplateId)} variant="secondary">
+                Personalizar
+              </Button>
+              <Button
+                onClick={() => onApplyTemplate(selectedTemplateId)}
+                className="bg-warm-500 hover:bg-warm-600 text-white"
+              >
+                Aplicar Plantilla
+              </Button>
+            </div>
           </div>
         )}
       </CardContent>

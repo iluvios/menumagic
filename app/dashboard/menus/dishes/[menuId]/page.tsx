@@ -1,23 +1,19 @@
 "use client"
 
-import type React from "react"
-
 import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
-import { useActionState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogTrigger } from "@/components/ui/dialog"
 import { Plus, Search, Edit3, Trash2, ImageIcon, Eye, Filter, Star, TrendingUp, Loader2 } from "lucide-react"
-import { getMenuItemsByMenuId, createMenuItem, updateMenuItem, deleteMenuItem } from "@/lib/actions/menu-studio-actions"
+import { getMenuItemsByMenuId, deleteMenuItem } from "@/lib/actions/menu-studio-actions" // Removed create/updateMenuItem
 import { getCategories } from "@/lib/actions/category-actions"
 import { toast } from "@/components/ui/use-toast"
-import { formatCurrency } from "@/lib/db"
+import { formatCurrency } from "@/lib/db" // Assuming formatCurrency is here
+import { MenuItemFormDialog } from "@/components/menu-item-form-dialog" // Import the new dialog
 
 interface MenuItem {
   id: number
@@ -27,10 +23,6 @@ interface MenuItem {
   menu_category_id: number
   category_name: string
   image_url?: string | null
-  // isActive: boolean; // Assuming all items are active for now, or status is managed elsewhere
-  // isPopular?: boolean;
-  // views: number;
-  // orders: number;
 }
 
 interface Category {
@@ -51,7 +43,7 @@ export default function DishManagementPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("all")
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-  const [editingDish, setEditingDish] = useState<MenuItem | null>(null)
+  const [editingDish, setEditingDish] = useState<MenuItem | null>(null) // State for editing
 
   const fetchInitialData = async () => {
     setLoading(true)
@@ -87,221 +79,17 @@ export default function DishManagementPage() {
     return matchesSearch && matchesCategory
   })
 
-  const DishForm = ({
-    dish,
-    onSave,
-    onCancel,
-  }: { dish?: MenuItem | null; onSave: () => void; onCancel: () => void }) => {
-    const [formData, setFormData] = useState({
-      name: dish?.name || "",
-      description: dish?.description || "",
-      price: dish?.price || 0,
-      menu_category_id: dish?.menu_category_id?.toString() || "",
-      imageFile: null as File | null,
-      current_image_url: dish?.image_url || null,
-    })
-
-    const [state, formAction] = useActionState(async (prevState: any, data: FormData) => {
-      const name = data.get("name") as string
-      const description = data.get("description") as string
-      const price = Number.parseFloat(data.get("price") as string)
-      const menu_category_id = Number.parseInt(data.get("menu_category_id") as string)
-      const imageFile = data.get("imageFile") as File | null
-
-      if (!name || !description || isNaN(price) || !menu_category_id) {
-        return { success: false, message: "All fields must be completed." }
-      }
-
-      try {
-        if (dish) {
-          // Update existing item
-          await updateMenuItem(
-            dish.id,
-            {
-              name,
-              description,
-              price,
-              menu_category_id,
-              image_url: formData.current_image_url === null ? null : undefined, // Only send null if explicitly cleared
-            },
-            imageFile && imageFile.size > 0 ? imageFile : undefined,
-          )
-          toast({ title: "Success", description: "Dish updated successfully." })
-        } else {
-          // Create new item
-          await createMenuItem(
-            {
-              digital_menu_id: digitalMenuId,
-              name,
-              description,
-              price,
-              menu_category_id,
-            },
-            imageFile && imageFile.size > 0 ? imageFile : undefined,
-          )
-          toast({ title: "Success", description: "Dish added successfully." })
-        }
-        onSave()
-        fetchInitialData() // Re-fetch data to update the list
-        return { success: true }
-      } catch (err: any) {
-        console.error("Form action error:", err)
-        toast({
-          title: "Error",
-          description: err.message || "Failed to save dish. Please try again.",
-          variant: "destructive",
-        })
-        return { success: false, message: err.message || "Failed to save dish." }
-      }
-    }, null)
-
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files && e.target.files[0]) {
-        setFormData({ ...formData, imageFile: e.target.files[0], current_image_url: null })
-      }
-    }
-
-    const handleRemoveImage = () => {
-      setFormData({ ...formData, imageFile: null, current_image_url: null })
-    }
-
-    return (
-      <form action={formAction} className="space-y-4">
-        <div>
-          <Label htmlFor="name">Nombre del platillo</Label>
-          <Input
-            id="name"
-            name="name"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            placeholder="Ej: Tacos al Pastor"
-            required
-          />
-        </div>
-
-        <div>
-          <Label htmlFor="description">Descripción</Label>
-          <Textarea
-            id="description"
-            name="description"
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            placeholder="Describe los ingredientes y preparación..."
-            rows={3}
-            required
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="price">Precio</Label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
-              <Input
-                id="price"
-                name="price"
-                type="number"
-                value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: Number.parseFloat(e.target.value) })}
-                className="pl-8"
-                placeholder="0.00"
-                step="0.01"
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <Label htmlFor="menu_category_id">Categoría</Label>
-            <Select
-              value={formData.menu_category_id}
-              onValueChange={(value) => setFormData({ ...formData, menu_category_id: value })}
-              name="menu_category_id"
-              required
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar categoría" />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((category) => (
-                  <SelectItem key={category.id} value={category.id.toString()}>
-                    {category.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <div>
-          <Label htmlFor="imageFile">Imagen del platillo</Label>
-          <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center relative">
-            {formData.current_image_url && !formData.imageFile ? (
-              <>
-                <img
-                  src={formData.current_image_url || "/placeholder.svg"}
-                  alt="Current dish image"
-                  className="mx-auto h-24 w-24 object-cover rounded-md mb-2"
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="absolute top-2 right-2 text-red-500"
-                  onClick={handleRemoveImage}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </>
-            ) : (
-              <ImageIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-            )}
-            <p className="text-sm text-gray-600">Arrastra una imagen o haz clic para seleccionar</p>
-            <Input
-              id="imageFile"
-              name="imageFile"
-              type="file"
-              accept="image/*"
-              onChange={handleFileChange}
-              className="mt-2 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100"
-            />
-          </div>
-        </div>
-
-        {state?.message && (
-          <p className={`text-sm ${state.success ? "text-green-600" : "text-red-600"}`}>{state.message}</p>
-        )}
-
-        <DialogFooter className="flex justify-end space-x-3 pt-4">
-          <Button variant="outline" onClick={onCancel} type="button">
-            Cancelar
-          </Button>
-          <Button type="submit" className="bg-gradient-to-r from-orange-500 to-red-500 text-white">
-            {state?.pending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
-              </>
-            ) : dish ? (
-              "Actualizar Platillo"
-            ) : (
-              "Agregar Platillo"
-            )}
-          </Button>
-        </DialogFooter>
-      </form>
-    )
-  }
-
   const handleDelete = async (id: number) => {
-    if (window.confirm("Are you sure you want to delete this dish?")) {
+    if (window.confirm("¿Estás seguro de que quieres eliminar este platillo?")) {
       try {
         await deleteMenuItem(id)
-        toast({ title: "Success", description: "Dish deleted successfully." })
-        fetchInitialData()
+        toast({ title: "Éxito", description: "Platillo eliminado exitosamente." })
+        fetchInitialData() // Re-fetch data to update the list
       } catch (err: any) {
         console.error("Delete error:", err)
         toast({
           title: "Error",
-          description: err.message || "Failed to delete dish. Please try again.",
+          description: err.message || "No se pudo eliminar el platillo. Inténtalo de nuevo.",
           variant: "destructive",
         })
       }
@@ -312,7 +100,7 @@ export default function DishManagementPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
-        <p className="ml-2 text-gray-600">Loading dishes...</p>
+        <p className="ml-2 text-gray-600">Cargando platillos...</p>
       </div>
     )
   }
@@ -322,7 +110,7 @@ export default function DishManagementPage() {
       <div className="text-center text-red-600 p-8">
         <p>{error}</p>
         <Button onClick={fetchInitialData} className="mt-4">
-          Retry
+          Reintentar
         </Button>
       </div>
     )
@@ -338,17 +126,25 @@ export default function DishManagementPage() {
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-gradient-to-r from-orange-500 to-red-500 text-white">
+            <Button
+              className="bg-gradient-to-r from-orange-500 to-red-500 text-white"
+              onClick={() => {
+                setEditingDish(null) // Ensure we're creating a new dish
+                setIsAddDialogOpen(true)
+              }}
+            >
               <Plus className="w-4 h-4 mr-2" />
               Agregar Platillo
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Agregar Nuevo Platillo</DialogTitle>
-            </DialogHeader>
-            <DishForm onSave={() => setIsAddDialogOpen(false)} onCancel={() => setIsAddDialogOpen(false)} />
-          </DialogContent>
+          <MenuItemFormDialog
+            isOpen={isAddDialogOpen}
+            onOpenChange={setIsAddDialogOpen}
+            currentMenuItem={editingDish}
+            digitalMenuId={digitalMenuId}
+            categories={categories}
+            onSaveSuccess={fetchInitialData} // Callback to refresh list
+          />
         </Dialog>
       </div>
 
@@ -461,7 +257,7 @@ export default function DishManagementPage() {
         <CardContent>
           <div className="space-y-4">
             {filteredDishes.length === 0 ? (
-              <p className="text-center text-gray-500">No dishes found for this menu. Add one!</p>
+              <p className="text-center text-gray-500">No se encontraron platillos para este menú. ¡Añade uno!</p>
             ) : (
               filteredDishes.map((dish) => (
                 <div key={dish.id} className={`border rounded-lg p-4 transition-all ${"border-gray-200 bg-white"}`}>
@@ -481,35 +277,18 @@ export default function DishManagementPage() {
                       <div className="flex-1">
                         <div className="flex items-center space-x-2 mb-1">
                           <h3 className={`font-semibold text-gray-900`}>{dish.name}</h3>
-                          {/* {dish.isPopular && <Star className="w-4 h-4 text-yellow-500 fill-current" />} */}
                           <Badge variant="outline" className="text-xs">
                             {dish.category_name}
                           </Badge>
-                          {/* {!dish.isActive && (
-                            <Badge variant="secondary" className="text-xs">
-                              Inactivo
-                            </Badge>
-                          )} */}
                         </div>
                         <p className={`text-sm mb-2 text-gray-600`}>{dish.description}</p>
-                        <div className="flex items-center space-x-4 text-sm text-gray-500">
-                          {/* <span>{dish.views} vistas</span>
-                          <span>{dish.orders} órdenes</span> */}
-                        </div>
+                        <div className="flex items-center space-x-4 text-sm text-gray-500"></div>
                       </div>
                       <div className="text-right">
                         <div className={`text-xl font-bold text-orange-600`}>{formatCurrency(dish.price)}</div>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2 ml-4">
-                      {/* <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => toggleDishStatus(dish.id)}
-                        className={dish.isActive ? "text-gray-600" : "text-green-600"}
-                      >
-                        {dish.isActive ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </Button> */}
                       <Dialog
                         open={editingDish?.id === dish.id}
                         onOpenChange={(open) => {
@@ -526,16 +305,16 @@ export default function DishManagementPage() {
                             <Edit3 className="w-4 h-4" />
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="max-w-2xl">
-                          <DialogHeader>
-                            <DialogTitle>Editar Platillo</DialogTitle>
-                          </DialogHeader>
-                          <DishForm
-                            dish={editingDish}
-                            onSave={() => setEditingDish(null)}
-                            onCancel={() => setEditingDish(null)}
-                          />
-                        </DialogContent>
+                        <MenuItemFormDialog
+                          isOpen={editingDish?.id === dish.id}
+                          onOpenChange={(open) => {
+                            if (!open) setEditingDish(null)
+                          }}
+                          currentMenuItem={editingDish}
+                          digitalMenuId={digitalMenuId}
+                          categories={categories}
+                          onSaveSuccess={fetchInitialData}
+                        />
                       </Dialog>
                       <Button
                         variant="outline"
