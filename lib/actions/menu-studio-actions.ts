@@ -1,56 +1,19 @@
 "use server"
 
-// Re-export all actions from atomized files
-export {
-  getDigitalMenus,
-  getDigitalMenuWithTemplate,
-  createDigitalMenu,
-  updateDigitalMenu,
-  deleteDigitalMenu,
-  uploadQrCodeForDigitalMenu,
-} from "./digital-menu-actions"
+// This file is intended to re-export actions from other files for convenience.
+// It helps consolidate imports in pages/components.
 
-export {
-  getMenuItemsByMenuId,
-  createMenuItem,
-  updateMenuItem,
-  deleteMenuItem,
-  updateMenuItemOrder,
-} from "./menu-item-actions"
-
-export {
-  getReusableMenuItems,
-  createReusableMenuItem,
-  updateReusableMenuItem,
-  deleteReusableMenuItem,
-} from "./reusable-menu-item-actions"
-
-export { mockAiMenuUpload, processMenuWithAI } from "./ai-menu-actions"
-
-export { getMenuTemplates, getMenuTemplateById, applyTemplateToMenu } from "./menu-template-actions"
-
-export {
-  getAllGlobalCategories,
-  getCategories, // Alias for getAllGlobalCategories
-  getCategoriesByType,
-  getMenuCategoriesForDigitalMenu,
-  createCategory,
-  addCategoryToDigitalMenu,
-  removeCategoryFromDigitalMenu,
-  updateCategory,
-  updateDigitalMenuCategoryOrder,
-  deleteCategory,
-} from "./category-actions"
-
-export {
-  getRecipes,
-  getRecipeById,
-  createRecipe,
-  updateRecipe,
-  deleteRecipe,
-  getReusableMenuItemsForRecipesPage,
-  getIngredientsForReusableDish,
-  addReusableDishIngredient,
-  updateReusableDishIngredient,
-  removeReusableDishIngredient,
-} from "./recipe-actions"
+export * from "./digital-menu-actions"
+export * from "./menu-item-actions"
+export * from "./category-actions"
+export * from "./menu-template-actions"
+export * from "./reusable-menu-item-actions"
+export * from "./recipe-actions"
+export * from "./ingredient-actions"
+export * from "./cost-actions"
+export * from "./inventory-actions"
+export * from "./supplier-actions"
+export * from "./restaurant-actions"
+export * from "./brand-kit-actions"
+export * from "./ai-menu-actions"
+export * from "./template-actions"

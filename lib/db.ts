@@ -10,6 +10,7 @@ if (!databaseUrl) {
 }
 
 export const sql = neon(databaseUrl)
+export const db = sql // Exporting sql as db to satisfy the missing export error
 console.log("[lib/db.ts] Neon SQL client initialized.")
 console.log(`[lib/db.ts] --- END DB INIT ---`)
 

@@ -21,3 +21,7 @@ export async function uploadBase64ImageToBlob(base64Data: string, filename: stri
   })
   return blob.url
 }
+
+// Placeholder export for utapi to resolve build error.
+// If you are using UploadThing, replace this with your actual utapi client.
+export const utapi = {}

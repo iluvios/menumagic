@@ -1,10 +1,8 @@
 "use server"
 
-import { neon } from "@neondatabase/serverless"
-import { unstable_noStore as noStore } from "next/cache"
-import { getRestaurantIdFromSession } from "@/lib/auth" // Import getRestaurantIdFromSession
-
-const sql = neon(process.env.DATABASE_URL!)
+import { sql } from "@/lib/db"
+import { revalidatePath } from "next/cache"
+import { getRestaurantIdFromSession } from "@/lib/auth"
 
 interface Category {
   id: number
@@ -30,7 +28,6 @@ interface DigitalMenuCategoryUpdate {
 
 // Fetches all categories from the global 'categories' table
 export async function getAllGlobalCategories(): Promise<Category[]> {
-  noStore()
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
@@ -55,7 +52,6 @@ export { getAllGlobalCategories as getCategories }
 
 // Fetches categories from the global 'categories' table by type
 export async function getCategoriesByType(type: string): Promise<Category[]> {
-  noStore()
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
@@ -77,7 +73,6 @@ export async function getCategoriesByType(type: string): Promise<Category[]> {
 
 // Fetches categories associated with a specific digital menu, in their menu-specific order
 export async function getMenuCategoriesForDigitalMenu(digitalMenuId: number): Promise<DigitalMenuCategory[]> {
-  noStore()
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
@@ -111,33 +106,22 @@ export async function getMenuCategoriesForDigitalMenu(digitalMenuId: number): Pr
 }
 
 // Creates a new global category
-export async function createCategory(name: string, type: string): Promise<Category> {
+export async function createCategory(data: { name: string; type: string; order_index: number }): Promise<Category> {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
-      console.error("No restaurant ID found for session.")
       throw new Error("Authentication required to create category.")
     }
 
-    // Find the maximum global order_index for the given type and restaurant
-    const maxOrderResult = await sql<{ max_order: number }[]>`
-      SELECT COALESCE(MAX(order_index), 0) as max_order
-      FROM categories
-      WHERE type = ${type} AND restaurant_id = ${restaurantId};
-    `
-    const nextGlobalOrderIndex = maxOrderResult[0].max_order + 1
-
-    const [newCategory] = await sql<Category[]>`
+    const result = await sql<Category[]>`
       INSERT INTO categories (name, type, order_index, restaurant_id)
-      VALUES (${name}, ${type}, ${nextGlobalOrderIndex}, ${restaurantId})
+      VALUES (${data.name}, ${data.type}, ${data.order_index}, ${restaurantId})
       RETURNING id, name, type, order_index, restaurant_id;
     `
-    return newCategory
-  } catch (error: any) {
-    console.error("Database Error:", error)
-    if (error.message?.includes("unique_category_name_type_per_restaurant")) {
-      throw new Error(`Ya existe una categoría con el nombre "${name}" y tipo "${type}".`)
-    }
+    revalidatePath("/dashboard/settings/categories")
+    return result[0]
+  } catch (error) {
+    console.error("Error creating category:", error)
     throw new Error("Failed to create category.")
   }
 }
@@ -248,7 +232,10 @@ export async function removeCategoryFromDigitalMenu(
 }
 
 // Updates the name of a global category
-export async function updateCategory(id: number, name: string): Promise<Category> {
+export async function updateCategory(
+  id: number,
+  data: { name?: string; type?: string; order_index?: number },
+): Promise<Category> {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
@@ -258,20 +245,22 @@ export async function updateCategory(id: number, name: string): Promise<Category
 
     const [updatedCategory] = await sql<Category[]>`
       UPDATE categories
-      SET name = ${name}, updated_at = CURRENT_TIMESTAMP
+      SET
+        name = COALESCE(${data.name}, name),
+        type = COALESCE(${data.type}, type),
+        order_index = COALESCE(${data.order_index}, order_index),
+        updated_at = CURRENT_TIMESTAMP
       WHERE id = ${id} AND restaurant_id = ${restaurantId}
       RETURNING id, name, type, order_index, restaurant_id;
     `
     if (!updatedCategory) {
       throw new Error("Category not found or does not belong to this restaurant.")
     }
+    revalidatePath("/dashboard/settings/categories")
     return updatedCategory
-  } catch (error: any) {
-    console.error("Database Error:", error)
-    if (error.message?.includes("unique_category_name_type_per_restaurant")) {
-      throw new Error(`Ya existe una categoría con el nombre "${name}" y tipo similar.`)
-    }
-    throw new Error("Failed to update category name.")
+  } catch (error) {
+    console.error("Error updating category:", error)
+    throw new Error("Failed to update category.")
   }
 }
 
@@ -308,23 +297,21 @@ export async function updateDigitalMenuCategoryOrder(updates: DigitalMenuCategor
 }
 
 // Deletes a global category (will cascade delete from digital_menu_categories if foreign key is set up)
-export async function deleteCategory(id: number): Promise<void> {
+export async function deleteCategory(id: number): Promise<{ success: boolean }> {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
-      console.error("No restaurant ID found for session.")
       throw new Error("Authentication required to delete category.")
     }
 
-    const result = await sql`
+    await sql`
       DELETE FROM categories
       WHERE id = ${id} AND restaurant_id = ${restaurantId};
     `
-    if (result.count === 0) {
-      throw new Error("Category not found or does not belong to this restaurant.")
-    }
+    revalidatePath("/dashboard/settings/categories")
+    return { success: true }
   } catch (error) {
-    console.error("Database Error:", error)
-    throw new Error("Failed to delete global category.")
+    console.error("Error deleting category:", error)
+    throw new Error("Failed to delete category.")
   }
 }

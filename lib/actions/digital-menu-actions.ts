@@ -3,7 +3,7 @@
 import { sql } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
-import { uploadBase64ImageToBlob } from "@/lib/utils/blob-helpers" // Import blob helper
+import { uploadBase64ImageToBlob } from "@/lib/utils/blob-helpers"
 
 export async function getDigitalMenus() {
   try {
@@ -36,7 +36,7 @@ export async function getDigitalMenus() {
 
 export async function getDigitalMenuWithTemplate(menuId: number) {
   try {
-    const query = sql`
+    const query = await sql`
       SELECT
         dm.id,
         dm.name,
@@ -55,12 +55,11 @@ export async function getDigitalMenuWithTemplate(menuId: number) {
       WHERE dm.id = ${menuId}
     `
 
-    const result = await query
-    if (!result || result.length === 0) {
+    if (!query || query.length === 0) {
       return null
     }
 
-    return result[0]
+    return query[0]
   } catch (error: any) {
     console.error("Error fetching digital menu with template:", error)
     throw new Error(`Failed to fetch digital menu with template: ${error?.message || "Unknown error"}`)

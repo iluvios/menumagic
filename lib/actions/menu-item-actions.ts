@@ -1,270 +1,224 @@
 "use server"
 
-import { sql } from "@/lib/db"
+import { db } from "@/lib/db"
 import { revalidatePath } from "next/cache"
-import { getRestaurantIdFromSession } from "@/lib/auth"
-import { uploadImageToBlob } from "@/lib/utils/blob-helpers"
+import { utapi } from "@/lib/utils/blob-helpers"
+import { z } from "zod"
 
-interface MenuItem {
-  id: number
-  digital_menu_id: number
-  reusable_menu_item_id?: number | null
-  name: string
-  description: string
-  price: number
-  category_id: number
-  category_name?: string
-  image_url?: string | null
-  is_available: boolean
-  order_index: number
-}
+// Define Zod schemas for validation
+const MenuItemSchema = z.object({
+  id: z.number().optional(),
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  price: z.number().min(0, "Price must be non-negative"),
+  categoryId: z.number().optional(),
+  menuId: z.number(),
+  imageUrl: z.string().optional(),
+  orderIndex: z.number().optional(),
+  isAvailable: z.boolean().optional(),
+})
 
-export async function getMenuItemsByMenuId(digitalMenuId: number): Promise<MenuItem[]> {
-  try {
-    const restaurantId = await getRestaurantIdFromSession()
-    if (!restaurantId) {
-      console.error("No restaurant ID found for session.")
-      return []
-    }
+const DeleteMenuItemSchema = z.object({
+  id: z.number(),
+  imageUrl: z.string().optional(),
+})
 
-    // Verify the digital menu belongs to the current restaurant
-    const menuCheck =
-      await sql`SELECT id FROM digital_menus WHERE id = ${digitalMenuId} AND restaurant_id = ${restaurantId}`
-    if (menuCheck.length === 0) {
-      throw new Error("Digital menu not found or does not belong to this restaurant.")
-    }
-
-    const result = await sql`
-      SELECT 
-        mi.id, 
-        mi.digital_menu_id, 
-        mi.reusable_menu_item_id,
-        mi.name, 
-        mi.description, 
-        mi.price, 
-        mi.category_id, 
-        c.name as category_name,
-        mi.image_url, 
-        mi.is_available,
-        mi.order_index
-      FROM menu_items mi
-      JOIN categories c ON mi.category_id = c.id
-      WHERE mi.digital_menu_id = ${digitalMenuId}
-      ORDER BY mi.order_index ASC
-    `
-    return result || []
-  } catch (error) {
-    console.error("Error fetching menu items:", error)
-    throw new Error("Failed to fetch menu items.")
+export async function createMenuItem(formData: FormData) {
+  const data = {
+    name: formData.get("name"),
+    description: formData.get("description"),
+    price: Number.parseFloat(formData.get("price") as string),
+    categoryId: formData.get("categoryId") ? Number.parseInt(formData.get("categoryId") as string) : undefined,
+    menuId: Number.parseInt(formData.get("menuId") as string),
+    isAvailable: formData.get("isAvailable") === "on",
   }
-}
 
-export async function createMenuItem(data: {
-  digital_menu_id: number
-  reusable_menu_item_id?: number | null
-  name: string
-  description: string
-  price: number
-  category_id: number
-  image_file?: File | null
-  is_available?: boolean
-}) {
-  try {
-    const restaurantId = await getRestaurantIdFromSession()
-    if (!restaurantId) {
-      throw new Error("Authentication required to create menu item.")
+  const validatedFields = MenuItemSchema.safeParse(data)
+
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: "Missing Fields. Failed to Create Menu Item.",
     }
-
-    // Verify the digital menu belongs to the current restaurant
-    const menuCheck =
-      await sql`SELECT id FROM digital_menus WHERE id = ${data.digital_menu_id} AND restaurant_id = ${restaurantId}`
-    if (menuCheck.length === 0) {
-      throw new Error("Digital menu not found or does not belong to this restaurant.")
-    }
-
-    let imageUrl: string | null = null
-    if (data.image_file) {
-      imageUrl = await uploadImageToBlob(data.image_file)
-    }
-
-    // Find the maximum order_index for this specific menu
-    const maxOrderResult = await sql<{ max_order: number }[]>`
-      SELECT COALESCE(MAX(order_index), 0) as max_order
-      FROM menu_items
-      WHERE digital_menu_id = ${data.digital_menu_id};
-    `
-    const nextOrderIndex = maxOrderResult[0].max_order + 1
-
-    const result = await sql`
-      INSERT INTO menu_items (
-        digital_menu_id, 
-        reusable_menu_item_id, 
-        name, 
-        description, 
-        price, 
-        category_id, 
-        image_url, 
-        is_available,
-        order_index
-      )
-      VALUES (
-        ${data.digital_menu_id}, 
-        ${data.reusable_menu_item_id || null}, 
-        ${data.name}, 
-        ${data.description}, 
-        ${data.price}, 
-        ${data.category_id}, 
-        ${imageUrl}, 
-        ${data.is_available ?? true},
-        ${nextOrderIndex}
-      )
-      RETURNING id, name
-    `
-    revalidatePath(`/dashboard/menu-studio/digital-menu/${data.digital_menu_id}`)
-    revalidatePath("/dashboard/menu-studio/digital-menu")
-    return result[0]
-  } catch (error) {
-    console.error("Error creating menu item:", error)
-    throw new Error("Failed to create menu item.")
   }
+
+  const { name, description, price, categoryId, menuId, isAvailable } = validatedFields.data
+
+  try {
+    const lastMenuItem = await db.menuItem.findFirst({
+      where: { menuId, categoryId },
+      orderBy: { orderIndex: "desc" },
+    })
+    const newOrderIndex = lastMenuItem ? lastMenuItem.orderIndex + 1 : 0
+
+    await db.menuItem.create({
+      data: {
+        name,
+        description,
+        price,
+        categoryId,
+        menuId,
+        orderIndex: newOrderIndex,
+        isAvailable,
+      },
+    })
+  } catch (error) {
+    return {
+      message: "Database Error: Failed to Create Menu Item.",
+    }
+  }
+
+  revalidatePath(`/dashboard/menus/dishes/${menuId}`)
+  return { message: "Menu item created successfully." }
 }
 
-export async function updateMenuItem(
-  id: number,
-  data: {
-    name?: string
-    description?: string
-    price?: number
-    category_id?: number
-    image_file?: File | null
-    image_url?: string | null // Allow direct URL update (e.g., for removing image)
-    is_available?: boolean
-    order_index?: number
-  },
-) {
+export async function updateMenuItem(formData: FormData) {
+  const data = {
+    id: Number.parseInt(formData.get("id") as string),
+    name: formData.get("name"),
+    description: formData.get("description"),
+    price: Number.parseFloat(formData.get("price") as string),
+    categoryId: formData.get("categoryId") ? Number.parseInt(formData.get("categoryId") as string) : undefined,
+    menuId: Number.parseInt(formData.get("menuId") as string),
+    isAvailable: formData.get("isAvailable") === "on",
+  }
+
+  const validatedFields = MenuItemSchema.safeParse(data)
+
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: "Missing Fields. Failed to Update Menu Item.",
+    }
+  }
+
+  const { id, name, description, price, categoryId, menuId, isAvailable } = validatedFields.data
+
   try {
-    const restaurantId = await getRestaurantIdFromSession()
-    if (!restaurantId) {
-      throw new Error("Authentication required to update menu item.")
+    await db.menuItem.update({
+      where: { id },
+      data: {
+        name,
+        description,
+        price,
+        categoryId,
+        menuId,
+        isAvailable,
+      },
+    })
+  } catch (error) {
+    return {
+      message: "Database Error: Failed to Update Menu Item.",
     }
+  }
 
-    // Verify the menu item belongs to a digital menu owned by this restaurant
-    const itemCheck = await sql`
-      SELECT mi.id 
-      FROM menu_items mi
-      JOIN digital_menus dm ON mi.digital_menu_id = dm.id
-      WHERE mi.id = ${id} AND dm.restaurant_id = ${restaurantId}
-    `
-    if (itemCheck.length === 0) {
-      throw new Error("Menu item not found or does not belong to this restaurant.")
+  revalidatePath(`/dashboard/menus/dishes/${menuId}`)
+  return { message: "Menu item updated successfully." }
+}
+
+export async function deleteMenuItem(formData: FormData) {
+  const data = {
+    id: Number.parseInt(formData.get("id") as string),
+    imageUrl: formData.get("imageUrl") as string,
+  }
+
+  const validatedFields = DeleteMenuItemSchema.safeParse(data)
+
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: "Missing Fields. Failed to Delete Menu Item.",
     }
+  }
 
-    let imageUrl: string | null | undefined = data.image_url // Use provided image_url if available
-    if (data.image_file !== undefined) {
-      if (data.image_file === null) {
-        imageUrl = null // Explicitly set to null if file is null
-      } else if (data.image_file instanceof File) {
-        imageUrl = await uploadImageToBlob(data.image_file)
+  const { id, imageUrl } = validatedFields.data
+
+  try {
+    await db.menuItem.delete({
+      where: { id },
+    })
+
+    if (imageUrl) {
+      const fileKey = imageUrl.split("/").pop()
+      if (fileKey) {
+        await utapi.deleteFiles(fileKey)
+      }
+    }
+  } catch (error) {
+    return {
+      message: "Database Error: Failed to Delete Menu Item.",
+    }
+  }
+
+  revalidatePath(`/dashboard/menus/dishes`)
+  return { message: "Menu item deleted successfully." }
+}
+
+export async function updateMenuItemImage(formData: FormData) {
+  const id = Number.parseInt(formData.get("id") as string)
+  const file = formData.get("image") as File
+  const oldImageUrl = formData.get("oldImageUrl") as string
+
+  if (!id || !file) {
+    return { message: "Missing ID or image file." }
+  }
+
+  try {
+    if (oldImageUrl) {
+      const fileKey = oldImageUrl.split("/").pop()
+      if (fileKey) {
+        await utapi.deleteFiles(fileKey)
       }
     }
 
-    const result = await sql`
-      UPDATE menu_items
-      SET
-        name = COALESCE(${data.name}, name),
-        description = COALESCE(${data.description}, description),
-        price = COALESCE(${data.price}, price),
-        category_id = COALESCE(${data.category_id}, category_id),
-        image_url = COALESCE(${imageUrl}, image_url),
-        is_available = COALESCE(${data.is_available}, is_available),
-        order_index = COALESCE(${data.order_index}, order_index),
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${id}
-      RETURNING id, name, digital_menu_id
-    `
-    revalidatePath(`/dashboard/menu-studio/digital-menu/${result[0].digital_menu_id}`)
-    revalidatePath("/dashboard/menu-studio/digital-menu")
-    return result[0]
+    const [res] = await utapi.uploadFiles([file])
+    if (!res || res.error) {
+      throw new Error(res?.error?.message || "Failed to upload image.")
+    }
+
+    await db.menuItem.update({
+      where: { id },
+      data: { imageUrl: res.data.url },
+    })
   } catch (error) {
-    console.error("Error updating menu item:", error)
-    throw new Error("Failed to update menu item.")
+    console.error("Error updating menu item image:", error)
+    return { message: "Failed to update menu item image." }
+  }
+
+  revalidatePath(`/dashboard/menus/dishes`)
+  return { message: "Menu item image updated successfully." }
+}
+
+export async function getMenuItemsByMenuId(menuId: number) {
+  try {
+    const menuItems = await db.menuItem.findMany({
+      where: { menuId },
+      orderBy: { orderIndex: "asc" },
+      include: {
+        category: true,
+      },
+    })
+    return menuItems
+  } catch (error) {
+    console.error("Error fetching menu items by menu ID:", error)
+    return []
   }
 }
 
-export async function deleteMenuItem(id: number) {
+export async function updateMenuItemOrder(menuId: number, categoryId: number | null, orderedIds: number[]) {
   try {
-    const restaurantId = await getRestaurantIdFromSession()
-    if (!restaurantId) {
-      throw new Error("Authentication required to delete menu item.")
-    }
-
-    // Get digital_menu_id before deleting for revalidation
-    const [menuItem] = await sql`SELECT digital_menu_id FROM menu_items WHERE id = ${id}`
-    if (!menuItem) {
-      throw new Error("Menu item not found.")
-    }
-
-    // Verify the menu item belongs to a digital menu owned by this restaurant
-    const itemCheck = await sql`
-      SELECT mi.id 
-      FROM menu_items mi
-      JOIN digital_menus dm ON mi.digital_menu_id = dm.id
-      WHERE mi.id = ${id} AND dm.restaurant_id = ${restaurantId}
-    `
-    if (itemCheck.length === 0) {
-      throw new Error("Menu item not found or does not belong to this restaurant.")
-    }
-
-    await sql`
-      DELETE FROM menu_items
-      WHERE id = ${id}
-    `
-    revalidatePath(`/dashboard/menu-studio/digital-menu/${menuItem.digital_menu_id}`)
-    revalidatePath("/dashboard/menu-studio/digital-menu")
-    return { success: true }
+    await db.$transaction(
+      orderedIds.map((id, index) =>
+        db.menuItem.update({
+          where: { id },
+          data: { orderIndex: index, categoryId: categoryId },
+        }),
+      ),
+    )
+    revalidatePath(`/dashboard/menus/dishes/${menuId}`)
+    return { success: true, message: "Menu item order updated successfully." }
   } catch (error) {
-    console.error("Error deleting menu item:", error)
-    throw new Error("Failed to delete menu item.")
-  }
-}
-
-export async function updateMenuItemOrder(updates: { id: number; order_index: number }[]): Promise<void> {
-  try {
-    const restaurantId = await getRestaurantIdFromSession()
-    if (!restaurantId) {
-      throw new Error("Authentication required to update menu item order.")
-    }
-
-    let digitalMenuIdToRevalidate: number | null = null
-
-    for (const update of updates) {
-      // Verify ownership of the menu_item entry
-      const checkOwnership = await sql`
-        SELECT mi.id, mi.digital_menu_id
-        FROM menu_items mi
-        JOIN digital_menus dm ON mi.digital_menu_id = dm.id
-        WHERE mi.id = ${update.id} AND dm.restaurant_id = ${restaurantId}
-      `
-      if (checkOwnership.length === 0) {
-        throw new Error(`Menu item with ID ${update.id} not found or does not belong to this restaurant.`)
-      }
-      if (!digitalMenuIdToRevalidate) {
-        digitalMenuIdToRevalidate = checkOwnership[0].digital_menu_id
-      }
-
-      await sql`
-        UPDATE menu_items
-        SET order_index = ${update.order_index}
-        WHERE id = ${update.id};
-      `
-    }
-
-    if (digitalMenuIdToRevalidate) {
-      revalidatePath(`/dashboard/menu-studio/digital-menu/${digitalMenuIdToRevalidate}`)
-      revalidatePath("/dashboard/menu-studio/digital-menu")
-    }
-  } catch (error) {
-    console.error("Database Error:", error)
-    throw new Error("Failed to update menu item order.")
+    console.error("Error updating menu item order:", error)
+    return { success: false, message: "Failed to update menu item order." }
   }
 }
