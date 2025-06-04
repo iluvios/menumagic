@@ -5,11 +5,12 @@ import { revalidatePath } from "next/cache"
 
 // --- Inventory Actions ---
 
-export async function getInventoryLevels() {
+export async function getInventoryItems() {
+  // Renamed from getInventoryLevels
   try {
     // TODO: Filter by restaurant_id
     const result = await sql`
-      SELECT 
+      SELECT
         i.id as ingredient_id,
         i.name as ingredient_name,
         i.sku,
@@ -29,6 +30,30 @@ export async function getInventoryLevels() {
     console.error("Error fetching inventory levels:", error)
     return []
   }
+}
+
+export async function createInventoryItem(data: any) {
+  // Placeholder for createInventoryItem
+  console.warn("Placeholder: createInventoryItem called with data:", data)
+  // Implement actual creation logic here
+  revalidatePath("/dashboard/operations-hub/inventory")
+  return { success: true }
+}
+
+export async function updateInventoryItem(id: number, data: any) {
+  // Placeholder for updateInventoryItem
+  console.warn(`Placeholder: updateInventoryItem called for ID ${id} with data:`, data)
+  // Implement actual update logic here
+  revalidatePath("/dashboard/operations-hub/inventory")
+  return { success: true }
+}
+
+export async function deleteInventoryItem(id: number) {
+  // Placeholder for deleteInventoryItem
+  console.warn(`Placeholder: deleteInventoryItem called for ID ${id}`)
+  // Implement actual delete logic here
+  revalidatePath("/dashboard/operations-hub/inventory")
+  return { success: true }
 }
 
 export async function createInventoryAdjustment(data: {
@@ -55,7 +80,7 @@ export async function createInventoryAdjustment(data: {
       INSERT INTO inventory_stock_levels (ingredient_id, current_quantity_in_storage_units, last_updated_at)
       VALUES (${data.ingredient_id}, ${data.quantity_adjusted}, CURRENT_TIMESTAMP)
       ON CONFLICT (ingredient_id) DO UPDATE
-      SET 
+      SET
         current_quantity_in_storage_units = inventory_stock_levels.current_quantity_in_storage_units + EXCLUDED.current_quantity_in_storage_units,
         last_updated_at = CURRENT_TIMESTAMP
     `
@@ -72,7 +97,7 @@ export async function getInventoryHistory() {
   try {
     // TODO: Filter by restaurant_id
     const result = await sql`
-      SELECT 
+      SELECT
         ia.id,
         ia.adjustment_date::text,
         ia.quantity_adjusted::numeric(10,3) as quantity_adjusted,

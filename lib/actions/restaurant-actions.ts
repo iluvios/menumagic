@@ -7,35 +7,36 @@ import { getSession } from "@/lib/auth"
 
 // --- Restaurant Profile Actions ---
 
-// Modify getRestaurantProfile to use session
-export async function getRestaurantProfile() {
+// Modify getRestaurantDetails to use session (renamed from getRestaurantProfile)
+export async function getRestaurantDetails() {
   const session = await getSession()
   if (!session?.restaurantId) {
     // If no session or restaurantId, return null or handle as unauthenticated
-    console.warn("No active session or restaurantId found for getRestaurantProfile.")
+    console.warn("No active session or restaurantId found for getRestaurantDetails.")
     return null
   }
 
   try {
     const result = await sql`
-      SELECT 
-        id, name, address_json, phone, email, cuisine_type, 
+      SELECT
+        id, name, address_json, phone, email, cuisine_type,
         operating_hours_json, currency_code, timezone, default_tax_rate_percentage
       FROM restaurants
       WHERE id = ${session.restaurantId}
     `
     return result[0] || null
   } catch (error) {
-    console.error("Error fetching restaurant profile:", error)
+    console.error("Error fetching restaurant details:", error)
     return null
   }
 }
 
-export async function updateRestaurantProfile(id: number, data: any) {
+export async function updateRestaurantDetails(id: number, data: any) {
+  // Renamed from updateRestaurantProfile
   try {
     await sql`
       UPDATE restaurants
-      SET 
+      SET
         name = COALESCE(${data.name}, name),
         address_json = COALESCE(${JSON.stringify(data.address_json)}, address_json),
         phone = COALESCE(${data.phone}, phone),
@@ -51,7 +52,7 @@ export async function updateRestaurantProfile(id: number, data: any) {
     revalidatePath("/dashboard/settings/profile")
     return { success: true }
   } catch (error) {
-    console.error("Error updating restaurant profile:", error)
-    return { success: false, error: "Failed to update restaurant profile" }
+    console.error("Error updating restaurant details:", error)
+    return { success: false, error: "Failed to update restaurant details" }
   }
 }

@@ -16,7 +16,7 @@ import {
   deleteMenuItem,
   getAllGlobalCategories,
   applyTemplateToMenu,
-} from "@/lib/actions/menu-studio-actions" // Import from consolidated actions
+} from "@/lib/actions/menu-studio-actions" // This import relies on menu-studio-actions.ts correctly re-exporting digital-menu-actions.ts
 import type { DigitalMenu } from "@/lib/types" // Assuming you have a DigitalMenu type defined
 import { PlusIcon } from "lucide-react"
 import { DigitalMenuFormDialog } from "@/components/digital-menu-form-dialog"

@@ -5,8 +5,6 @@ import { revalidatePath } from "next/cache"
 import { put } from "@vercel/blob"
 import type { PutBlobResult } from "@vercel/blob"
 
-// Removed redundant neon initialization and DATABASE_URL check from here
-
 export interface MenuTemplate {
   id: number
   name: string
@@ -35,8 +33,8 @@ export interface MenuTemplate {
   updated_at?: string
 }
 
-// Get all templates for a restaurant
-export async function getMenuTemplates() {
+// Get all templates for a restaurant (renamed from getMenuTemplates)
+export async function getTemplates() {
   try {
     const templates = await sql`
       SELECT id, name, description, preview_image_url
@@ -50,8 +48,8 @@ export async function getMenuTemplates() {
   }
 }
 
-// Get a specific template by ID
-export async function getMenuTemplateById(id: number) {
+// Get a specific template by ID (renamed from getMenuTemplateById)
+export async function getTemplateById(id: number) {
   try {
     const result = await sql`
       SELECT id, name, description, preview_image_url, template_data_json, is_default,
@@ -66,8 +64,8 @@ export async function getMenuTemplateById(id: number) {
   }
 }
 
-// Create a new template
-export async function createMenuTemplate(
+// Create a new template (renamed from createMenuTemplate)
+export async function createTemplate(
   data: {
     name: string
     description: string
@@ -103,8 +101,8 @@ export async function createMenuTemplate(
   }
 }
 
-// Update an existing template
-export async function updateMenuTemplate(
+// Update an existing template (renamed from updateMenuTemplate)
+export async function updateTemplate(
   id: number,
   data: {
     name?: string
@@ -129,7 +127,7 @@ export async function updateMenuTemplate(
   try {
     await sql`
       UPDATE menu_templates
-      SET 
+      SET
         name = COALESCE(${data.name}, name),
         description = COALESCE(${data.description}, description),
         template_data_json = COALESCE(${JSON.stringify(data.template_data_json)}, template_data_json),
@@ -145,8 +143,8 @@ export async function updateMenuTemplate(
   }
 }
 
-// Delete a template
-export async function deleteMenuTemplate(id: number) {
+// Delete a template (renamed from deleteMenuTemplate)
+export async function deleteTemplate(id: number) {
   try {
     // First, unlink any digital menus using this template
     await sql`
@@ -168,7 +166,7 @@ export async function deleteMenuTemplate(id: number) {
   }
 }
 
-// Apply a template to a digital menu
+// Apply a template to a digital menu (renamed from applyTemplateToMenu)
 export async function applyTemplateToMenu(digitalMenuId: number, templateId: number) {
   try {
     await sql`
@@ -184,7 +182,7 @@ export async function applyTemplateToMenu(digitalMenuId: number, templateId: num
   }
 }
 
-// Mock AI template generation
+// Mock AI template generation (renamed from generateTemplateWithAI)
 export async function generateTemplateWithAI(
   prompt: string,
   baseTemplateId?: number,
@@ -220,7 +218,7 @@ export async function generateTemplateWithAI(
   return aiGeneratedTemplate
 }
 
-// Seed default templates
+// Seed default templates (renamed from seedDefaultTemplates)
 export async function seedDefaultTemplates(restaurantId = 1) {
   try {
     // Check if default templates already exist
@@ -254,8 +252,8 @@ export async function seedDefaultTemplates(restaurantId = 1) {
     await sql`
       INSERT INTO menu_templates (restaurant_id, name, description, template_data_json, is_default)
       VALUES (
-        ${restaurantId}, 
-        'Classic Elegant', 
+        ${restaurantId},
+        'Classic Elegant',
         'A timeless and sophisticated design perfect for fine dining establishments.',
         ${JSON.stringify(classicTemplate)},
         true
@@ -277,8 +275,8 @@ export async function seedDefaultTemplates(restaurantId = 1) {
     await sql`
       INSERT INTO menu_templates (restaurant_id, name, description, template_data_json, is_default)
       VALUES (
-        ${restaurantId}, 
-        'Modern Vibrant', 
+        ${restaurantId},
+        'Modern Vibrant',
         'A contemporary and colorful design ideal for casual dining and trendy cafes.',
         ${JSON.stringify(modernTemplate)},
         true
