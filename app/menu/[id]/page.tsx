@@ -20,31 +20,43 @@ export default async function LiveDigitalMenuPage({ params }: PageProps) {
   }
 
   try {
+    console.log(`[LiveDigitalMenuPage] Attempting to fetch menu data for menuId: ${menuId}`)
     const menuData = await getDigitalMenuWithTemplate(menuId)
+    console.log("[LiveDigitalMenuPage] Fetched menuData:", menuData)
+
     const menuItems = await getMenuItemsByMenuId(menuId)
+    console.log("[LiveDigitalMenuPage] Fetched menuItems:", menuItems)
+
     const { brandKit } = await getBrandKit()
+    console.log("[LiveDigitalMenuPage] Fetched brandKit:", brandKit)
 
     if (!menuData) {
+      console.error(`[LiveDigitalMenuPage] Menu data not found for ID: ${menuId}. Calling notFound().`)
       notFound()
     }
 
-    const template = menuData.template_data_json || {
-      primary_color: "#1F2937",
-      secondary_color: "#F9FAFB",
-      accent_color: "#D97706",
-      background_color: "#FFFFFF",
-      border_radius: "8px",
-      font_family_primary: "Inter",
-      font_family_secondary: "Lora",
-      layout_style: "list",
-      card_style: "elevated",
-      spacing: "comfortable",
-      show_images: true,
-      show_descriptions: true,
-      show_prices: true,
-      header_style: "centered",
-      footer_style: "simple",
-    }
+    // Ensure template_data_json is an object, even if it's null or not an object from DB
+    const template =
+      typeof menuData.template_data_json === "object" && menuData.template_data_json !== null
+        ? menuData.template_data_json
+        : {
+            primary_color: "#1F2937",
+            secondary_color: "#F9FAFB",
+            accent_color: "#D97706",
+            background_color: "#FFFFFF",
+            border_radius: "8px",
+            font_family_primary: "Inter",
+            font_family_secondary: "Lora",
+            layout_style: "list",
+            card_style: "elevated",
+            spacing: "comfortable",
+            show_images: true,
+            show_descriptions: true,
+            show_prices: true,
+            header_style: "centered",
+            footer_style: "simple",
+          }
+    console.log("[LiveDigitalMenuPage] Resolved template:", template)
 
     // Group menu items by category
     const groupedItems = menuItems.reduce((acc: any, item: any) => {
@@ -55,7 +67,9 @@ export default async function LiveDigitalMenuPage({ params }: PageProps) {
       acc[category].push(item)
       return acc
     }, {})
+    console.log("[LiveDigitalMenuPage] Grouped items:", groupedItems)
 
+    console.log("[LiveDigitalMenuPage] Rendering component...")
     return (
       <div
         className="min-h-screen"
@@ -267,7 +281,9 @@ export default async function LiveDigitalMenuPage({ params }: PageProps) {
       </div>
     )
   } catch (error) {
-    console.error("Error loading menu:", error)
+    console.error("[LiveDigitalMenuPage] Error loading menu:", error)
+    // In a production environment, you might want to render a more user-friendly error page
+    // or redirect to a generic error page instead of just notFound().
     notFound()
   }
 }
