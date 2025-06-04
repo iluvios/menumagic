@@ -1,18 +1,11 @@
 "use server"
 
-import { neon } from "@neondatabase/serverless"
+import { sql } from "@/lib/db" // Import sql from lib/db
 import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
 import { put, del } from "@vercel/blob"
 
-const databaseUrl = process.env.DATABASE_URL
-
-if (!databaseUrl) {
-  console.error("DATABASE_URL is not set. Please ensure it's configured in your environment variables.")
-  throw new Error("Database connection failed: DATABASE_URL is missing.")
-}
-
-const sql = neon(databaseUrl)
+// Removed redundant neon initialization and DATABASE_URL check from here
 
 // Helper to upload image to Vercel Blob
 async function uploadImageToBlob(file: File | undefined | null, folder: string) {
@@ -57,14 +50,15 @@ export async function getDigitalMenus() {
 }
 
 export async function getDigitalMenuWithTemplate(menuId: number) {
+  console.log(`[getDigitalMenuWithTemplate] Attempting to fetch menu ${menuId} with template.`)
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
-      console.error("No restaurant ID found for session.")
+      console.error("[getDigitalMenuWithTemplate] No restaurant ID found for session.")
       return null
     }
 
-    const result = await sql`
+    const query = sql`
       SELECT
         dm.id,
         dm.name,
@@ -81,14 +75,20 @@ export async function getDigitalMenuWithTemplate(menuId: number) {
       LEFT JOIN menu_templates mt ON dm.template_id = mt.id
       WHERE dm.id = ${menuId} AND dm.restaurant_id = ${restaurantId}
     `
+    console.log("[getDigitalMenuWithTemplate] Executing SQL query:", query.strings[0]) // Log the query string
+    const result = await query
 
     if (result.length === 0) {
+      console.warn(
+        `[getDigitalMenuWithTemplate] No menu found for ID ${menuId} or it does not belong to this restaurant.`,
+      )
       return null
     }
 
+    console.log("[getDigitalMenuWithTemplate] Successfully fetched menu data:", result[0])
     return result[0]
   } catch (error) {
-    console.error(`Error fetching digital menu with template for ID ${menuId}:`, error)
+    console.error(`[getDigitalMenuWithTemplate] Detailed error fetching menu ${menuId}:`, error)
     throw new Error("Failed to fetch digital menu with template.")
   }
 }

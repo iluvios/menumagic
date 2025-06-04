@@ -1,14 +1,18 @@
 import { neon } from "@neondatabase/serverless"
 
-// Ensure DATABASE_URL is available
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is not set in environment variables.")
+const databaseUrl = process.env.DATABASE_URL
+
+// Explicitly log the DATABASE_URL to see its value during initialization
+console.log(
+  `[lib/db.ts] Attempting to connect to database. DATABASE_URL: ${databaseUrl ? "***** (present)" : "undefined"}`,
+)
+
+if (!databaseUrl) {
+  console.error("[lib/db.ts] DATABASE_URL is not set. Please ensure it's configured in your environment variables.")
+  throw new Error("Database connection failed: DATABASE_URL is missing.")
 }
 
-// Create a singleton instance of the Neon client
-const sql = neon(process.env.DATABASE_URL)
-
-export { sql }
+export const sql = neon(databaseUrl)
 
 export function formatCurrency(amount: number, currencyCode = "USD"): string {
   return new Intl.NumberFormat("en-US", {

@@ -1,18 +1,11 @@
 "use server"
 
-import { neon } from "@neondatabase/serverless"
+import { sql } from "@/lib/db" // Import sql from lib/db
 import { revalidatePath } from "next/cache"
 import { put } from "@vercel/blob"
 import type { PutBlobResult } from "@vercel/blob"
 
-const databaseUrl = process.env.DATABASE_URL
-
-if (!databaseUrl) {
-  console.error("DATABASE_URL is not set. Please ensure it's configured in your environment variables.")
-  throw new Error("Database connection failed: DATABASE_URL is missing.")
-}
-
-const sql = neon(databaseUrl)
+// Removed redundant neon initialization and DATABASE_URL check from here
 
 export interface MenuTemplate {
   id: number
@@ -279,14 +272,6 @@ export async function seedDefaultTemplates(restaurantId = 1) {
       border_radius: "16px",
       font_family_primary: "Inter",
       font_family_secondary: "Poppins",
-      layout_style: "grid",
-      card_style: "minimal",
-      spacing: "compact",
-      show_images: true,
-      show_descriptions: true,
-      show_prices: true,
-      header_style: "modern",
-      footer_style: "branded",
     }
 
     await sql`
