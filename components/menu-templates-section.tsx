@@ -22,7 +22,7 @@ interface MenuTemplatesSectionProps {
 
 export const MenuTemplatesSection: React.FC<MenuTemplatesSectionProps> = ({
   selectedMenu,
-  templates,
+  templates = [], // Add default empty array
   onApplyTemplate,
 }) => {
   // Mock templates if none are provided
@@ -65,7 +65,7 @@ export const MenuTemplatesSection: React.FC<MenuTemplatesSectionProps> = ({
     },
   ]
 
-  const displayTemplates = templates.length > 0 ? templates : mockTemplates
+  const displayTemplates = templates && templates.length > 0 ? templates : mockTemplates
 
   return (
     <div className="space-y-6">
@@ -92,7 +92,8 @@ export const MenuTemplatesSection: React.FC<MenuTemplatesSectionProps> = ({
                       src={
                         template.preview_image ||
                         template.thumbnail ||
-                        "/placeholder.svg?height=200&width=300&text=Template"
+                        "/placeholder.svg?height=200&width=300&text=Template" ||
+                        "/placeholder.svg"
                       }
                       alt={template.name}
                       className="object-cover w-full h-full"
@@ -127,7 +128,7 @@ export const MenuTemplatesSection: React.FC<MenuTemplatesSectionProps> = ({
             ))}
           </div>
 
-          {templates.length === 0 && (
+          {(!templates || templates.length === 0) && (
             <div className="text-center py-8 mt-6 border-t">
               <p className="text-gray-500 mb-4">
                 Templates are currently being loaded. The designs above are examples of what will be available.

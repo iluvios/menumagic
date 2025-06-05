@@ -26,7 +26,8 @@ export function ReusableMenuItemsList({ items, onItemUpdated, onItemDeleted }: R
   const [isRecipeDialogOpen, setIsRecipeDialogOpen] = useState(false)
   const [selectedRecipeItem, setSelectedRecipeItem] = useState<any | null>(null) // Temporarily using any
 
-  const handleEdit = (item: any) => { // Temporarily using any
+  const handleEdit = (item: any) => {
+    // Temporarily using any
     setEditingItem(item)
     setIsFormDialogOpen(true)
   }
@@ -51,7 +52,8 @@ export function ReusableMenuItemsList({ items, onItemUpdated, onItemDeleted }: R
   // This handleSave is no longer directly wired to the dialog's save mechanism.
   // const handleSave = async (data: any) => { ... }
 
-  const handleOpenRecipe = (item: any) => { // Temporarily using any
+  const handleOpenRecipe = (item: any) => {
+    // Temporarily using any
     setSelectedRecipeItem(item)
     setIsRecipeDialogOpen(true)
   }
@@ -111,18 +113,18 @@ export function ReusableMenuItemsList({ items, onItemUpdated, onItemDeleted }: R
       <MenuItemFormDialog
         isOpen={isFormDialogOpen}
         onOpenChange={(isOpen) => {
-          setIsFormDialogOpen(isOpen);
-          if (!isOpen) setEditingItem(null); // Clear editing item when dialog closes
+          setIsFormDialogOpen(isOpen)
+          if (!isOpen) setEditingItem(null) // Clear editing item when dialog closes
         }}
         onSaveSuccess={() => {
-          onItemUpdated(); // Call prop from parent
-          setIsFormDialogOpen(false); // Close dialog
-          setEditingItem(null); // Clear editing item
+          onItemUpdated() // Call prop from parent
+          setIsFormDialogOpen(false) // Close dialog
+          setEditingItem(null) // Clear editing item
         }}
-        currentMenuItem={editingItem} 
+        currentMenuItem={editingItem}
         isReusableItemForm={true}
-        categories={[]} 
-        onCategoriesUpdated={() => {}} 
+        categories={[]}
+        onCategoriesUpdated={() => {}}
       />
 
       {selectedRecipeItem && (
@@ -131,7 +133,7 @@ export function ReusableMenuItemsList({ items, onItemUpdated, onItemDeleted }: R
           onOpenChange={setIsRecipeDialogOpen}
           reusableMenuItemId={selectedRecipeItem.id}
           reusableMenuItemName={selectedRecipeItem.name}
-          onSaveSuccess={onItemUpdated} 
+          onSaveSuccess={onItemUpdated}
         />
       )}
     </div>

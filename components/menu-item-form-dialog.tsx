@@ -2,8 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
+import { useState, useEffect, useMemo } from "react"
 import {
   Dialog,
   DialogContent,
@@ -11,478 +10,373 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { useToast } from "@/hooks/use-toast"
-import { createMenuItem, updateMenuItem } from "@/lib/actions/menu-studio-actions"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { PlusIcon } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-
-// Helper function to safely convert price to number and format it for display
-const formatPriceForDisplay = (price: number | string | undefined): string => {
-  if (price === undefined || price === null) return "0.00"
-  const numPrice = typeof price === "string" ? Number.parseFloat(price) : price
-  return isNaN(numPrice) ? "0.00" : numPrice.toFixed(2)
-}
-
-interface MenuItem {
-  id: number
-  name: string
-  description: string
-  price: number
-  image_url?: string
-  menu_category_id: number
-  category_name?: string
-  dish_id?: number
-  is_available: boolean
-  order_index: number
-}
-
-interface Category {
-  id: number
-  name: string
-  type: string
-  order_index: number
-}
-
-interface Dish {
-  id: number
-  name: string
-  description: string
-  price: number
-  menu_category_id: number
-  category_name?: string
-  image_url?: string | null
-  is_available: boolean
-  cost_per_serving?: number
-}
+import { Switch } from "@/components/ui/switch"
+import { toast } from "sonner"
+import { Loader2 } from "lucide-react"
+import Image from "next/image"
+import { Trash2 } from "lucide-react" // Declared the variable here
+import { createMenuItem, updateMenuItem, getAllGlobalCategories, getAllDishes } from "@/lib/actions/menu-studio-actions" // Corrected import for getAllDishes
+import { formatCurrency } from "@/lib/utils/client-formatters" // Corrected import
 
 interface MenuItemFormDialogProps {
-  isOpen: boolean
-  onOpenChange: (open: boolean) => void
-  currentMenuItem: MenuItem | null
+  children: React.ReactNode
   digitalMenuId?: number
-  categories: Category[]
-  dishes: Dish[]
-  onSaveSuccess: () => void
-  onCategoriesUpdated: () => void
-  onOpenCategoryManager: () => void
+  menuItem?: any // Existing menu item data for editing
+  onSave: () => void
+  categories: any[] // Global categories
+  dishes: any[] // Global dishes
 }
 
-export function MenuItemFormDialog({
-  isOpen,
-  onOpenChange,
-  currentMenuItem,
-  digitalMenuId,
-  categories,
-  dishes,
-  onSaveSuccess,
-  onCategoriesUpdated,
-  onOpenCategoryManager,
-}: MenuItemFormDialogProps) {
-  const { toast } = useToast()
-  const [activeTab, setActiveTab] = useState<string>("new")
-  const [name, setName] = useState("")
-  const [description, setDescription] = useState("")
-  const [price, setPrice] = useState("")
-  const [categoryId, setCategoryId] = useState<string>("")
-  const [selectedDishId, setSelectedDishId] = useState<string>("")
+// Helper to safely format price for display
+const formatPriceForDisplay = (price: string | number | null | undefined) => {
+  const numPrice = typeof price === "string" ? Number.parseFloat(price) : price
+  return numPrice != null && !isNaN(numPrice) ? formatCurrency(numPrice) : "$0.00"
+}
+
+export function MenuItemFormDialog({ children, digitalMenuId, menuItem, onSave }: MenuItemFormDialogProps) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [name, setName] = useState(menuItem?.name || "")
+  const [description, setDescription] = useState(menuItem?.description || "")
+  const [price, setPrice] = useState(menuItem?.price?.toString() || "")
+  const [categoryId, setCategoryId] = useState(menuItem?.menu_category_id?.toString() || "")
+  const [isAvailable, setIsAvailable] = useState(menuItem?.is_available ?? true)
   const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [searchTerm, setSearchTerm] = useState("")
+  const [previewImageUrl, setPreviewImageUrl] = useState(menuItem?.image_url || "")
+  const [isSaving, setIsSaving] = useState(false)
+  const [tab, setTab] = useState<"new" | "existing">(menuItem ? "new" : "new") // Default to 'new' for creation, 'new' for editing existing
+  const [selectedDishId, setSelectedDishId] = useState<string>("")
+  const [searchTerm, setSearchTerm] = useState<string>("")
+
+  const [allGlobalCategories, setAllGlobalCategories] = useState<any[]>([])
+  const [allGlobalDishes, setAllGlobalDishes] = useState<any[]>([])
 
   useEffect(() => {
-    if (currentMenuItem) {
-      setName(currentMenuItem.name || "")
-      setDescription(currentMenuItem.description || "")
-      setPrice(currentMenuItem.price?.toString() || "")
-      setCategoryId(currentMenuItem.menu_category_id?.toString() || "")
-      setImagePreview(currentMenuItem.image_url || null)
-      setActiveTab("new") // Always show the edit form for existing items
-    } else {
-      resetForm()
+    if (isOpen) {
+      // Reset form when dialog opens
+      setName(menuItem?.name || "")
+      setDescription(menuItem?.description || "")
+      setPrice(menuItem?.price?.toString() || "")
+      setCategoryId(menuItem?.menu_category_id?.toString() || "")
+      setIsAvailable(menuItem?.is_available ?? true)
+      setPreviewImageUrl(menuItem?.image_url || "")
+      setImageFile(null)
+      setTab(menuItem ? "new" : "new") // Keep 'new' tab for editing, 'new' for creating
+      setSelectedDishId(menuItem?.dish_id?.toString() || "")
+      setSearchTerm("")
+      fetchGlobalData()
     }
-  }, [currentMenuItem, isOpen])
+  }, [isOpen, menuItem])
 
-  const resetForm = () => {
-    setName("")
-    setDescription("")
-    setPrice("")
-    setCategoryId("")
-    setSelectedDishId("")
-    setImageFile(null)
-    setImagePreview(null)
-    setActiveTab("new")
-    setSearchTerm("")
+  const fetchGlobalData = async () => {
+    try {
+      const categories = await getAllGlobalCategories()
+      setAllGlobalCategories(categories)
+      const dishes = await getAllDishes()
+      setAllGlobalDishes(dishes)
+    } catch (error) {
+      toast.error("Failed to fetch global data.")
+      console.error("Error fetching global data:", error)
+    }
   }
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0]
       setImageFile(file)
-      setImagePreview(URL.createObjectURL(file))
+      setPreviewImageUrl(URL.createObjectURL(file))
+    } else {
+      setImageFile(null)
+      setPreviewImageUrl(menuItem?.image_url || "")
     }
   }
 
   const handleRemoveImage = () => {
     setImageFile(null)
-    setImagePreview(null)
+    setPreviewImageUrl("")
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!digitalMenuId) {
-      toast({
-        title: "Error",
-        description: "No menu selected.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    setIsSubmitting(true)
+    setIsSaving(true)
 
     try {
-      if (activeTab === "existing" && selectedDishId) {
-        // Adding an existing dish to the menu
-        await createMenuItem({
-          digital_menu_id: digitalMenuId,
-          dish_id: Number.parseInt(selectedDishId),
-        })
-        toast({ title: "Success", description: "Dish added to menu." })
+      if (menuItem) {
+        // Editing existing menu item (which updates the global dish)
+        await updateMenuItem(
+          menuItem.id,
+          {
+            name,
+            description,
+            price: Number.parseFloat(price),
+            menu_category_id: Number.parseInt(categoryId),
+            isAvailable,
+          },
+          imageFile === null && previewImageUrl === "" ? null : imageFile, // Pass null if image removed
+        )
+        toast.success("Menu item updated successfully.")
       } else {
-        // Creating a new dish or updating an existing one
-        if (!name || !price || !categoryId) {
-          throw new Error("Name, price, and category are required.")
-        }
-
-        if (currentMenuItem) {
-          // Update existing menu item
-          await updateMenuItem(
-            currentMenuItem.id,
-            {
-              name,
-              description,
-              price: Number.parseFloat(price),
-              menu_category_id: Number.parseInt(categoryId),
-            },
-            imageFile,
-          )
-          toast({ title: "Success", description: "Menu item updated." })
+        // Creating new menu item
+        if (tab === "new") {
+          if (!name || !price || !categoryId) {
+            toast.error("Name, price, and category are required.")
+            return
+          }
+          if (!digitalMenuId) {
+            toast.error("Digital menu ID is missing.")
+            return
+          }
+          await createMenuItem({
+            digital_menu_id: digitalMenuId,
+            name,
+            description,
+            price: Number.parseFloat(price),
+            menu_category_id: Number.parseInt(categoryId),
+            isAvailable,
+            // image_file is handled inside createDish which is called by createMenuItem
+          })
+          toast.success("New dish and menu item created successfully.")
         } else {
-          // Create new menu item
-          await createMenuItem(
-            {
-              digital_menu_id: digitalMenuId,
-              name,
-              description,
-              price: Number.parseFloat(price),
-              menu_category_id: Number.parseInt(categoryId),
-            },
-            imageFile,
-          )
-          toast({ title: "Success", description: "Menu item created." })
+          // Adding existing dish to menu
+          if (!selectedDishId) {
+            toast.error("Please select an existing dish.")
+            return
+          }
+          if (!digitalMenuId) {
+            toast.error("Digital menu ID is missing.")
+            return
+          }
+          await createMenuItem({
+            digital_menu_id: digitalMenuId,
+            dish_id: Number.parseInt(selectedDishId),
+          })
+          toast.success("Existing dish added to menu successfully.")
         }
       }
-
-      onSaveSuccess()
-      onOpenChange(false)
-      resetForm()
+      onSave()
+      setIsOpen(false)
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to save menu item.",
-        variant: "destructive",
-      })
+      toast.error(error.message || "Failed to save menu item.")
+      console.error("Error saving menu item:", error)
     } finally {
-      setIsSubmitting(false)
+      setIsSaving(false)
     }
   }
 
-  // Filter dishes based on search term, ensuring dishes is an array
-  const filteredDishes = (dishes || []).filter(
-    (dish) =>
-      dish.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      dish.description.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const filteredDishes = useMemo(() => {
+    if (!Array.isArray(allGlobalDishes)) return []
+    return allGlobalDishes.filter((dish) => dish.name.toLowerCase().includes(searchTerm.toLowerCase()))
+  }, [allGlobalDishes, searchTerm])
+
+  const selectedDishDetails = useMemo(() => {
+    return allGlobalDishes.find((dish) => dish.id === Number.parseInt(selectedDishId))
+  }, [allGlobalDishes, selectedDishId])
 
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
-          <DialogTitle>{currentMenuItem ? "Edit Menu Item" : "Add Menu Item"}</DialogTitle>
+          <DialogTitle>{menuItem ? "Edit Menu Item" : "Add Menu Item"}</DialogTitle>
           <DialogDescription>
-            {currentMenuItem
-              ? "Update the details of this menu item."
-              : "Add a new item to your menu or select an existing dish."}
+            {menuItem
+              ? "Make changes to your menu item here. This will update the global dish."
+              : "Add a new dish to your menu or select an existing one."}
           </DialogDescription>
         </DialogHeader>
-
-        {!currentMenuItem && (
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="new">Create New Dish</TabsTrigger>
-              <TabsTrigger value="existing">Use Existing Dish</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="new" className="mt-4">
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Name</Label>
-                  <Input
-                    id="name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Dish name"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Describe your dish"
-                    rows={3}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="price">Price</Label>
-                    <Input
-                      id="price"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={price}
-                      onChange={(e) => setPrice(e.target.value)}
-                      placeholder="0.00"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="category">Category</Label>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2 text-xs"
-                        onClick={onOpenCategoryManager}
-                      >
-                        <PlusIcon className="h-3 w-3 mr-1" />
-                        New Category
-                      </Button>
-                    </div>
-                    <Select value={categoryId} onValueChange={setCategoryId} required>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(categories || []).map((category) => (
-                          <SelectItem key={category.id} value={category.id.toString()}>
-                            {category.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="image">Image (Optional)</Label>
-                  <div className="flex items-center gap-4">
-                    <Input id="image" type="file" accept="image/*" onChange={handleImageChange} className="flex-1" />
-                    {imagePreview && (
-                      <Button type="button" variant="outline" size="sm" onClick={handleRemoveImage}>
-                        Remove
-                      </Button>
-                    )}
-                  </div>
-                  {imagePreview && (
-                    <div className="mt-2">
-                      <img
-                        src={imagePreview || "/placeholder.svg"}
-                        alt="Preview"
-                        className="h-32 w-32 object-cover rounded-md border border-gray-200"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                <DialogFooter>
-                  <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? "Saving..." : currentMenuItem ? "Update Item" : "Add Item"}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </TabsContent>
-
-            <TabsContent value="existing" className="mt-4">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="search">Search Dishes</Label>
-                  <Input
-                    id="search"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search by name or description"
-                  />
-                </div>
-
-                <div className="border rounded-md overflow-hidden">
-                  <div className="max-h-[300px] overflow-y-auto">
-                    {filteredDishes.length === 0 ? (
-                      <div className="p-4 text-center text-gray-500">No dishes found</div>
-                    ) : (
-                      <div className="divide-y">
-                        {filteredDishes.map((dish) => (
-                          <div
-                            key={dish.id}
-                            className={`p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 ${
-                              selectedDishId === dish.id.toString() ? "bg-blue-50" : ""
-                            }`}
-                            onClick={() => setSelectedDishId(dish.id.toString())}
-                          >
-                            <input
-                              type="radio"
-                              checked={selectedDishId === dish.id.toString()}
-                              onChange={() => setSelectedDishId(dish.id.toString())}
-                              className="h-4 w-4"
-                            />
-                            <div className="flex-1">
-                              <div className="font-medium">{dish.name}</div>
-                              <div className="text-sm text-gray-500 line-clamp-1">{dish.description}</div>
-                              <div className="text-sm font-medium">${formatPriceForDisplay(dish.price)}</div>
-                            </div>
-                            {dish.image_url && (
-                              <img
-                                src={dish.image_url || "/placeholder.svg"}
-                                alt={dish.name}
-                                className="h-12 w-12 object-cover rounded-md"
-                              />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <DialogFooter>
-                  <Button type="button" onClick={handleSubmit} disabled={isSubmitting || !selectedDishId}>
-                    {isSubmitting ? "Adding..." : "Add Selected Dish"}
-                  </Button>
-                </DialogFooter>
-              </div>
-            </TabsContent>
-          </Tabs>
+        {!menuItem && ( // Only show tabs for new item creation
+          <div className="flex space-x-2 border-b">
+            <Button
+              variant={tab === "new" ? "secondary" : "ghost"}
+              onClick={() => setTab("new")}
+              className="rounded-b-none"
+            >
+              Create New Dish
+            </Button>
+            <Button
+              variant={tab === "existing" ? "secondary" : "ghost"}
+              onClick={() => setTab("existing")}
+              className="rounded-b-none"
+            >
+              Use Existing Dish
+            </Button>
+          </div>
         )}
 
-        {currentMenuItem && (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Dish name"
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Describe your dish"
-                rows={3}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="price">Price</Label>
+        <form onSubmit={handleSubmit} className="grid gap-4 py-4">
+          {tab === "new" || menuItem ? ( // Show new dish form for 'new' tab or when editing
+            <>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="name" className="text-right">
+                  Name
+                </Label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="col-span-3"
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="description" className="text-right">
+                  Description
+                </Label>
+                <Textarea
+                  id="description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="col-span-3"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="price" className="text-right">
+                  Price
+                </Label>
                 <Input
                   id="price"
                   type="number"
                   step="0.01"
-                  min="0"
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
-                  placeholder="0.00"
+                  className="col-span-3"
                   required
                 />
               </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="category">Category</Label>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 px-2 text-xs"
-                    onClick={onOpenCategoryManager}
-                  >
-                    <PlusIcon className="h-3 w-3 mr-1" />
-                    New Category
-                  </Button>
-                </div>
-                <Select value={categoryId} onValueChange={setCategoryId} required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select category" />
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="category" className="text-right">
+                  Category
+                </Label>
+                <Select onValueChange={setCategoryId} value={categoryId} required>
+                  <SelectTrigger className="col-span-3">
+                    <SelectValue placeholder="Select a category" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(categories || []).map((category) => (
-                      <SelectItem key={category.id} value={category.id.toString()}>
-                        {category.name}
-                      </SelectItem>
-                    ))}
+                    {Array.isArray(allGlobalCategories) &&
+                      allGlobalCategories.map((category) => (
+                        <SelectItem key={category.id} value={category.id.toString()}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="image">Image (Optional)</Label>
-              <div className="flex items-center gap-4">
-                <Input id="image" type="file" accept="image/*" onChange={handleImageChange} className="flex-1" />
-                {imagePreview && (
-                  <Button type="button" variant="outline" size="sm" onClick={handleRemoveImage}>
-                    Remove
-                  </Button>
-                )}
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="isAvailable" className="text-right">
+                  Available
+                </Label>
+                <Switch
+                  id="isAvailable"
+                  checked={isAvailable}
+                  onCheckedChange={setIsAvailable}
+                  className="col-span-3"
+                />
               </div>
-              {imagePreview && (
-                <div className="mt-2">
-                  <img
-                    src={imagePreview || "/placeholder.svg"}
-                    alt="Preview"
-                    className="h-32 w-32 object-cover rounded-md border border-gray-200"
-                  />
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="image" className="text-right">
+                  Image
+                </Label>
+                <div className="col-span-3 flex flex-col gap-2">
+                  {previewImageUrl && (
+                    <div className="relative h-32 w-32">
+                      <Image
+                        src={previewImageUrl || "/placeholder.svg"}
+                        alt="Preview"
+                        layout="fill"
+                        objectFit="cover"
+                        className="rounded-md"
+                      />
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="absolute -right-2 -top-2 h-6 w-6 rounded-full p-0"
+                        onClick={handleRemoveImage}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
+                  <Input id="image" type="file" accept="image/*" onChange={handleImageChange} />
+                </div>
+              </div>
+            </>
+          ) : (
+            // Show existing dish selection form for 'existing' tab
+            <>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="searchDish" className="text-right">
+                  Search Dish
+                </Label>
+                <Input
+                  id="searchDish"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search by dish name..."
+                  className="col-span-3"
+                />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="selectDish" className="text-right">
+                  Select Dish
+                </Label>
+                <Select onValueChange={setSelectedDishId} value={selectedDishId} required>
+                  <SelectTrigger className="col-span-3">
+                    <SelectValue placeholder="Select an existing dish" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredDishes.length === 0 ? (
+                      <p className="p-2 text-sm text-gray-500">No dishes found.</p>
+                    ) : (
+                      filteredDishes.map((dish) => (
+                        <SelectItem key={dish.id} value={dish.id.toString()}>
+                          {dish.name} ({formatPriceForDisplay(dish.price)})
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              {selectedDishDetails && (
+                <div className="col-span-4 col-start-1 rounded-md border p-4">
+                  <h4 className="font-semibold">{selectedDishDetails.name}</h4>
+                  <p className="text-sm text-gray-500">{selectedDishDetails.description}</p>
+                  <p className="text-sm font-medium">{formatPriceForDisplay(selectedDishDetails.price)}</p>
+                  {selectedDishDetails.image_url && (
+                    <Image
+                      src={selectedDishDetails.image_url || "/placeholder.svg"}
+                      alt={selectedDishDetails.name}
+                      width={96}
+                      height={96}
+                      className="mt-2 h-24 w-24 rounded-md object-cover"
+                    />
+                  )}
                 </div>
               )}
-            </div>
+            </>
+          )}
 
-            <DialogFooter>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Saving..." : "Update Item"}
-              </Button>
-            </DialogFooter>
-          </form>
-        )}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save Changes"
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )

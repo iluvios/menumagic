@@ -2,39 +2,38 @@
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Download, QrCode } from "lucide-react"
+import { Download } from "lucide-react"
 import { useState, useEffect } from "react"
 
-interface PersistentQrDisplayProps {
+interface PersistentQRDisplayProps {
   menuId: number | null
+  qrCodeUrl: string | null
 }
 
-export function PersistentQrDisplay({ menuId }: PersistentQrDisplayProps) {
-  const [menuUrl, setMenuUrl] = useState<string | null>(null)
+// Export with the exact name that's being imported
+export function PersistentQRDisplay({ menuId, qrCodeUrl }: PersistentQRDisplayProps) {
+  const [displayUrl, setDisplayUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (menuId) {
-      setMenuUrl(`${window.location.origin}/menu/${menuId}`)
+      setDisplayUrl(`${window.location.origin}/menu/${menuId}`)
     } else {
-      setMenuUrl(null)
+      setDisplayUrl(null)
     }
   }, [menuId])
 
   const handleDownload = () => {
-    if (!menuUrl) return
-
-    // Generate QR code URL - in a real app, use a proper QR generation API
-    const qrImageUrl = `/placeholder.svg?height=200&width=200&query=QR%20code%20for%20${encodeURIComponent(menuUrl)}`
+    if (!qrCodeUrl) return
 
     const link = document.createElement("a")
-    link.href = qrImageUrl
-    link.download = `menumagic_qr_code_${menuId}.svg`
+    link.href = qrCodeUrl
+    link.download = `menumagic_qr_code_${menuId}.png`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
   }
 
-  if (!menuId || !menuUrl) {
+  if (!menuId || !displayUrl || !qrCodeUrl) {
     return null
   }
 
@@ -43,11 +42,11 @@ export function PersistentQrDisplay({ menuId }: PersistentQrDisplayProps) {
       <CardContent className="flex items-center justify-between p-4">
         <div className="flex items-center gap-3">
           <div className="bg-warm-100 p-2 rounded-md">
-            <QrCode className="h-6 w-6 text-warm-600" />
+            <img src={qrCodeUrl || "/placeholder.svg"} alt={`QR Code for Menu ${menuId}`} className="h-16 w-16" />
           </div>
           <div>
             <h3 className="font-medium text-neutral-800">Código QR del Menú</h3>
-            <p className="text-sm text-neutral-500 truncate max-w-[200px] sm:max-w-[300px]">{menuUrl}</p>
+            <p className="text-sm text-neutral-500 truncate max-w-[200px] sm:max-w-[300px]">{displayUrl}</p>
           </div>
         </div>
         <Button onClick={handleDownload} className="bg-warm-500 hover:bg-warm-600 text-white">

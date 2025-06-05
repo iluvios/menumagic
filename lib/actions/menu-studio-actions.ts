@@ -38,6 +38,19 @@ interface DigitalMenuCategoryUpdate {
   order_index: number
 }
 
+interface DigitalMenuWithTemplate {
+  id: number
+  name: string
+  status: string
+  template_id: number | null
+  qr_code_url: string | null
+  created_at: Date
+  updated_at: Date
+  template_name: string | null
+  template_description: string | null
+  template_preview_image_url: string | null
+}
+
 // Category Actions
 export async function getAllGlobalCategories(): Promise<Category[]> {
   try {
@@ -524,6 +537,37 @@ export async function getDigitalMenus() {
   }
 }
 
+export async function getDigitalMenuWithTemplate(menuId: number): Promise<DigitalMenuWithTemplate | null> {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("No restaurant ID found for session.")
+      return null
+    }
+
+    const [menu] = await sql<DigitalMenuWithTemplate[]>`
+      SELECT 
+        dm.id, 
+        dm.name, 
+        dm.status, 
+        dm.template_id, 
+        dm.qr_code_url, 
+        dm.created_at, 
+        dm.updated_at,
+        mt.name AS template_name,
+        mt.description AS template_description,
+        mt.preview_image_url AS template_preview_image_url
+      FROM digital_menus dm
+      LEFT JOIN menu_templates mt ON dm.template_id = mt.id
+      WHERE dm.id = ${menuId} AND dm.restaurant_id = ${restaurantId}
+    `
+    return menu || null
+  } catch (error) {
+    console.error("Error fetching digital menu with template:", error)
+    throw new Error("Failed to fetch digital menu with template.")
+  }
+}
+
 export async function createDigitalMenu(data: { name: string; status: string }) {
   try {
     const restaurantId = await getRestaurantIdFromSession()
@@ -925,6 +969,52 @@ export async function applyTemplateToMenu(menuId: number, templateId: number) {
   } catch (error) {
     console.error("Error applying template to menu:", error)
     throw new Error(`Failed to apply template: ${error.message}`)
+  }
+}
+
+// AI Item Addition Function
+export async function addAiItemToMenu(digitalMenuId: number, item: any) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required.")
+    }
+
+    // Find or create category
+    let categoryId: number | undefined
+    const globalCategories = await getAllGlobalCategories()
+    const existingCategory = globalCategories.find((cat) => cat.name.toLowerCase() === item.category?.toLowerCase())
+
+    if (existingCategory) {
+      categoryId = existingCategory.id
+    } else {
+      // Create new category if it doesn't exist
+      const newCategory = await createCategory({
+        name: item.category || "Uncategorized",
+        type: "menu_item",
+        order_index: globalCategories.length + 1,
+      })
+      categoryId = newCategory.id
+    }
+
+    if (!categoryId) {
+      throw new Error("Could not determine category ID for AI item.")
+    }
+
+    // Create menu item (which also creates a global dish if it doesn't exist)
+    await createMenuItem({
+      digital_menu_id: digitalMenuId,
+      name: item.name,
+      description: item.description || "",
+      price: typeof item.price === "number" ? item.price : Number.parseFloat(item.price) || 0,
+      menu_category_id: categoryId,
+      isAvailable: true,
+    })
+
+    return { success: true }
+  } catch (error: any) {
+    console.error("Error adding AI item to menu:", error)
+    throw new Error(error.message || "Failed to add AI item to menu.")
   }
 }
 
