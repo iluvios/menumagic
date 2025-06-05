@@ -5,7 +5,6 @@ import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
 import { put, del } from "@vercel/blob"
 
-// Helper to upload image to Vercel Blob
 export async function uploadBrandAsset(file: File | undefined | null, folder: string) {
   if (!file) return null
   if (file.size === 0) return null
@@ -15,7 +14,6 @@ export async function uploadBrandAsset(file: File | undefined | null, folder: st
   return url
 }
 
-// Helper to delete image from Vercel Blob
 export async function deleteBrandAsset(url: string | undefined | null) {
   if (!url) return
   try {
@@ -25,7 +23,6 @@ export async function deleteBrandAsset(url: string | undefined | null) {
   }
 }
 
-// Modified to accept restaurantId for public access
 export async function getBrandKit(restaurantId?: number) {
   let targetRestaurantId = restaurantId
   if (!targetRestaurantId) {
