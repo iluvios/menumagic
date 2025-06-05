@@ -1,18 +1,14 @@
 "use client"
 
-import type React from "react" // Explicitly import React
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Progress } from "@/components/ui/progress"
-import { UploadCloud, Wand2, SkipForward, CheckCircle2, Edit } from "lucide-react" // Ensure all Lucide icons are imported
-import { formatCurrency } from "@/lib/utils/formatters" // Assuming this utility is available
+import type React from "react"
 
-interface DigitalMenu {
-  id: number
-  name: string
-  status: string
-}
+import { useState } from "react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
+import { Upload, FileImage, Sparkles, Check } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+import { mockAiMenuUpload } from "@/lib/actions/ai-menu-actions"
 
 interface MenuItem {
   id: number
@@ -22,22 +18,22 @@ interface MenuItem {
   image_url?: string
   menu_category_id: number
   category_name?: string
-  ai_extracted?: boolean
+  reusable_menu_item_id?: number
+  is_available: boolean
+  order_index: number
 }
 
-type AiOnboardingStep = "idle" | "upload" | "processing" | "review" | "complete"
-
 interface AiOnboardingSectionProps {
-  selectedMenu: DigitalMenu | null
-  aiOnboardingStep: AiOnboardingStep
-  setAiOnboardingStep: React.Dispatch<React.SetStateAction<AiOnboardingStep>>
+  selectedMenu: { id: number; name: string }
+  aiOnboardingStep: "idle" | "upload" | "processing" | "review" | "complete"
+  setAiOnboardingStep: (step: "idle" | "upload" | "processing" | "review" | "complete") => void
   aiMenuFile: File | null
-  setAiMenuFile: React.Dispatch<React.SetStateAction<File | null>>
+  setAiMenuFile: (file: File | null) => void
   aiProcessingProgress: number
-  startAiProcessing: () => Promise<void>
+  startAiProcessing: () => void
   aiExtractedItems: MenuItem[]
-  handleAcceptAiItem: (item: MenuItem) => Promise<void>
-  handleAcceptAllAiItems: () => Promise<void>
+  handleAcceptAiItem: (item: MenuItem) => void
+  handleAcceptAllAiItems: () => void
   handleOpenMenuItemDialog: (item?: MenuItem) => void
 }
 
@@ -54,177 +50,220 @@ export function AiOnboardingSection({
   handleAcceptAllAiItems,
   handleOpenMenuItemDialog,
 }: AiOnboardingSectionProps) {
-  if (!selectedMenu)
-    return (
-      <Card className="mt-6 bg-neutral-50 border-neutral-200 shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-lg font-semibold text-neutral-700">Carga Rápida con IA</CardTitle>
-          <CardDescription className="text-neutral-500">
-            Selecciona o crea un menú digital primero para activar la carga con IA.
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    )
+  const { toast } = useToast()
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
 
-  switch (aiOnboardingStep) {
-    case "idle":
-      return (
-        <Card className="mt-6 bg-gradient-to-br from-warm-50 to-amber-100 border-warm-200 shadow-lg">
-          <CardHeader>
-            <CardTitle className="text-xl font-semibold text-warm-700 flex items-center">
-              <Wand2 className="mr-2 h-6 w-6 text-warm-500" />
-              Carga Rápida con IA para "{selectedMenu.name}"
-            </CardTitle>
-            <CardDescription className="text-warm-600">
-              ¿Tienes tu menú en un archivo? Súbelo y deja que nuestra IA extraiga los platillos por ti.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-center">
-            <Button
-              onClick={() => setAiOnboardingStep("upload")}
-              className="bg-warm-500 hover:bg-warm-600 text-white shadow-md"
-            >
-              <UploadCloud className="mr-2 h-5 w-5" /> Iniciar Carga con IA
-            </Button>
-            <p className="text-sm text-neutral-500 mt-3">o</p>
-            <Button
-              variant="link"
-              onClick={() => handleOpenMenuItemDialog()}
-              className="text-warm-600 hover:text-warm-700"
-            >
-              Añadir elementos manualmente
-            </Button>
-          </CardContent>
-        </Card>
-      )
-    case "upload":
-      return (
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Paso 1: Sube tu Menú</CardTitle>
-            <CardDescription>Sube una imagen (JPG, PNG) o PDF de tu menú actual.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Input
-              type="file"
-              accept=".jpg,.jpeg,.png,.pdf"
-              onChange={(e) => setAiMenuFile(e.target.files?.[0] || null)}
-              className="border-neutral-300 focus:border-warm-500 focus:ring-warm-500"
-            />
-            {aiMenuFile && <p className="text-sm text-neutral-600">Archivo seleccionado: {aiMenuFile.name}</p>}
-          </CardContent>
-          <CardFooter className="flex justify-between">
-            <Button variant="outline" onClick={() => setAiOnboardingStep("idle")}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={startAiProcessing}
-              disabled={!aiMenuFile}
-              className="bg-warm-500 hover:bg-warm-600 text-white"
-            >
-              <Wand2 className="mr-2 h-4 w-4" /> Procesar con IA
-            </Button>
-          </CardFooter>
-        </Card>
-      )
-    case "processing":
-      return (
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Paso 2: Procesando con IA...</CardTitle>
-            <CardDescription>Nuestra IA está analizando tu menú. Esto puede tomar unos momentos.</CardDescription>
-          </CardHeader>
-          <CardContent className="py-8 text-center">
-            <Progress value={aiProcessingProgress} className="w-full [&>div]:bg-warm-500" />
-            <p className="mt-3 text-sm text-neutral-600">{aiProcessingProgress}% completado</p>
-          </CardContent>
-        </Card>
-      )
-    case "review":
-      return (
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Paso 3: Revisa los Elementos Extraídos</CardTitle>
-            <CardDescription>
-              Hemos extraído estos elementos de tu menú. Confirma o edita antes de añadirlos.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 max-h-96 overflow-y-auto">
-            {aiExtractedItems.length === 0 && <p>No se pudieron extraer elementos o ya fueron procesados.</p>}
-            {aiExtractedItems.map((item, index) => (
-              <Card key={index} className="p-3 bg-neutral-50 border-neutral-200">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-semibold text-neutral-800">{item.name}</p>
-                    <p className="text-sm text-neutral-600">{item.description}</p>
-                    <p className="text-sm text-warm-600 font-medium">{formatCurrency(item.price)}</p>
-                  </div>
-                  <div className="flex space-x-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        handleOpenMenuItemDialog({ ...item, id: 0 }) // Open edit dialog, treat as new
-                        // Note: This removes the item from the review list immediately.
-                        // Consider if you want to keep it until it's actually saved.
-                        // For now, this matches the original logic.
-                        // setAiExtractedItems((prev) => prev.filter((_, i) => i !== index))
-                      }}
-                    >
-                      <Edit className="h-3 w-3 mr-1" /> Editar y Añadir
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="bg-green-500 hover:bg-green-600 text-white"
-                      onClick={() => handleAcceptAiItem(item)}
-                    >
-                      <CheckCircle2 className="h-3 w-3 mr-1" /> Añadir
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </CardContent>
-          <CardFooter className="flex justify-between items-center mt-4">
-            <Button variant="outline" onClick={() => setAiOnboardingStep("upload")}>
-              Subir Otro
-            </Button>
-            {aiExtractedItems.length > 0 && (
-              <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleAcceptAllAiItems}>
-                <CheckCircle2 className="mr-2 h-4 w-4" /> Añadir Todos los {aiExtractedItems.length} Restantes
-              </Button>
-            )}
-            <Button
-              onClick={() => setAiOnboardingStep("complete")}
-              className="bg-warm-500 hover:bg-warm-600 text-white"
-            >
-              <SkipForward className="mr-2 h-4 w-4" /> Finalizar Revisión
-            </Button>
-          </CardFooter>
-        </Card>
-      )
-    case "complete":
-      return (
-        <Card className="mt-6 bg-green-50 border-green-200">
-          <CardHeader>
-            <CardTitle className="text-green-700 flex items-center">
-              <CheckCircle2 className="mr-2 h-6 w-6" />
-              ¡Carga con IA Completada!
-            </CardTitle>
-            <CardDescription className="text-green-600">
-              Los elementos seleccionados han sido añadidos a "{selectedMenu?.name}". Puedes continuar añadiendo
-              manualmente o subir otro menú.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex space-x-3">
-            <Button onClick={() => setAiOnboardingStep("upload")} variant="outline">
-              <UploadCloud className="mr-2 h-4 w-4" /> Subir Otro Menú
-            </Button>
-            <Button onClick={() => setAiOnboardingStep("idle")} className="bg-warm-500 hover:bg-warm-600 text-white">
-              Volver al Inicio del Hub
-            </Button>
-          </CardContent>
-        </Card>
-      )
+  const handleFileUpload = (file: File) => {
+    if (file.type.startsWith("image/") || file.type === "application/pdf") {
+      setAiMenuFile(file)
+      setAiOnboardingStep("upload")
+    } else {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload an image (PNG, JPG) or PDF file.",
+        variant: "destructive",
+      })
+    }
   }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleFileUpload(file)
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handleFileUpload(file)
+  }
+
+  const processWithAI = async () => {
+    if (!aiMenuFile) return
+
+    setIsProcessing(true)
+    setAiOnboardingStep("processing")
+
+    try {
+      const formData = new FormData()
+      formData.append("menu", aiMenuFile)
+
+      const result = await mockAiMenuUpload(formData)
+
+      if (result.success && result.data) {
+        // Convert the AI result to MenuItem format
+        const extractedItems: MenuItem[] = []
+        let itemId = 1000 // Temporary ID for preview
+
+        result.data.categories?.forEach((category: any) => {
+          category.items?.forEach((item: any) => {
+            extractedItems.push({
+              id: itemId++,
+              name: item.name || "Unnamed Item",
+              description: item.description || "",
+              price: item.price || 0,
+              menu_category_id: 1, // Default category
+              category_name: category.name || "Uncategorized",
+              is_available: true,
+              order_index: 0,
+            })
+          })
+        })
+
+        // Simulate the extracted items being set
+        setTimeout(() => {
+          setAiOnboardingStep("review")
+          setIsProcessing(false)
+          // You would set the extracted items here in the parent component
+          toast({
+            title: "AI Processing Complete!",
+            description: `Extracted ${extractedItems.length} menu items.`,
+          })
+        }, 2000)
+      } else {
+        throw new Error(result.error || "Failed to process menu")
+      }
+    } catch (error: any) {
+      console.error("AI processing error:", error)
+      toast({
+        title: "Processing Failed",
+        description: error.message || "Failed to process menu with AI",
+        variant: "destructive",
+      })
+      setAiOnboardingStep("upload")
+      setIsProcessing(false)
+    }
+  }
+
+  const resetAiFlow = () => {
+    setAiOnboardingStep("idle")
+    setAiMenuFile(null)
+    setIsProcessing(false)
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-purple-500" />
+            AI Menu Upload
+          </CardTitle>
+          <CardDescription>Upload your existing menu and let AI extract all items automatically</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {aiOnboardingStep === "idle" && (
+            <div className="text-center py-8">
+              <div
+                className={`border-2 border-dashed rounded-lg p-8 transition-colors ${
+                  isDragOver ? "border-purple-400 bg-purple-50" : "border-gray-300"
+                }`}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  setIsDragOver(true)
+                }}
+                onDragLeave={() => setIsDragOver(false)}
+                onDrop={handleDrop}
+              >
+                <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium mb-2">Upload Your Menu</h3>
+                <p className="text-gray-500 mb-4">Drag and drop your menu image or PDF, or click to browse</p>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  id="menu-upload"
+                />
+                <label htmlFor="menu-upload">
+                  <Button asChild>
+                    <span>Choose File</span>
+                  </Button>
+                </label>
+              </div>
+            </div>
+          )}
+
+          {aiOnboardingStep === "upload" && aiMenuFile && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-lg">
+                <FileImage className="h-8 w-8 text-blue-500" />
+                <div className="flex-1">
+                  <p className="font-medium">{aiMenuFile.name}</p>
+                  <p className="text-sm text-gray-500">{(aiMenuFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={resetAiFlow}>
+                  Remove
+                </Button>
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={processWithAI} disabled={isProcessing} className="flex-1">
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  {isProcessing ? "Processing..." : "Extract with AI"}
+                </Button>
+                <Button variant="outline" onClick={resetAiFlow}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {aiOnboardingStep === "processing" && (
+            <div className="space-y-4 text-center py-8">
+              <Sparkles className="h-12 w-12 text-purple-500 mx-auto animate-spin" />
+              <h3 className="text-lg font-medium">AI is analyzing your menu...</h3>
+              <Progress value={aiProcessingProgress} className="w-full max-w-md mx-auto" />
+              <p className="text-sm text-gray-500">This may take a few moments while we extract all menu items</p>
+            </div>
+          )}
+
+          {aiOnboardingStep === "review" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-medium">Review Extracted Items</h3>
+                <div className="flex gap-2">
+                  <Button onClick={handleAcceptAllAiItems} size="sm">
+                    Accept All ({aiExtractedItems.length})
+                  </Button>
+                  <Button variant="outline" onClick={resetAiFlow} size="sm">
+                    Start Over
+                  </Button>
+                </div>
+              </div>
+
+              {aiExtractedItems.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">No items were extracted. Try a different image or add items manually.</p>
+                  <Button onClick={() => handleOpenMenuItemDialog()} className="mt-4">
+                    Add Item Manually
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {aiExtractedItems.map((item, index) => (
+                    <div key={index} className="flex items-center gap-3 p-3 border rounded-lg">
+                      <div className="flex-1">
+                        <h4 className="font-medium">{item.name}</h4>
+                        <p className="text-sm text-gray-500">{item.description}</p>
+                        <p className="text-sm font-medium text-green-600">${item.price}</p>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button size="sm" variant="outline" onClick={() => handleOpenMenuItemDialog(item)}>
+                          Edit
+                        </Button>
+                        <Button size="sm" onClick={() => handleAcceptAiItem(item)}>
+                          <Check className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
 }

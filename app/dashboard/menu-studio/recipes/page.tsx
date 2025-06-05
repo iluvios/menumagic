@@ -2,6 +2,9 @@ import { ReusableMenuItemsList } from "@/components/reusable-menu-items-list"
 import { getReusableMenuItemsForRecipesPage } from "@/lib/actions/recipe-actions"
 import { revalidatePath } from "next/cache"
 
+// Force dynamic rendering since we use cookies for authentication
+export const dynamic = "force-dynamic"
+
 export default async function RecipesPage() {
   const items = await getReusableMenuItemsForRecipesPage()
 
@@ -23,10 +26,10 @@ export default async function RecipesPage() {
         menú y automáticamente deducirán ingredientes del inventario cuando se registren ventas.
       </p>
 
-      <ReusableMenuItemsList 
+      <ReusableMenuItemsList
         items={items || []} // Ensure items is an array, defaulting to empty if undefined/null
-        onItemUpdated={handleItemUpdated} 
-        onItemDeleted={handleItemDeleted} 
+        onItemUpdated={handleItemUpdated}
+        onItemDeleted={handleItemDeleted}
       />
     </div>
   )

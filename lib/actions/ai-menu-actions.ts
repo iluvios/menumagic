@@ -1,8 +1,12 @@
 "use server"
-import { getRestaurantIdFromSession } from "@/lib/auth"
-import { GoogleGenerativeAI } from "@google/generative-ai"
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY!)
+import { GoogleGenerativeAI } from "@google/generative-ai"
+import { getRestaurantIdFromSession } from "@/lib/auth"
+import { sql } from "@/lib/db"
+import { createDish } from "./menu-studio-actions"
+
+// Initialize the Google Generative AI client
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENERATIVE_AI_API_KEY || "")
 
 export async function mockAiMenuUpload(formData: FormData) {
   try {
@@ -16,18 +20,10 @@ export async function mockAiMenuUpload(formData: FormData) {
       throw new Error("No file provided")
     }
 
-    // Convert file to base64 for processing
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
-    const base64 = buffer.toString("base64")
-
     // Process with AI
-    const extractedData = await processMenuWithAI(base64, file.type)
+    const result = await processMenuWithAI(file)
 
-    return {
-      success: true,
-      data: extractedData,
-    }
+    return result
   } catch (error: any) {
     console.error("Error in mockAiMenuUpload:", error)
     return {
@@ -37,93 +33,265 @@ export async function mockAiMenuUpload(formData: FormData) {
   }
 }
 
-export async function processMenuWithAI(base64Image: string, mimeType: string) {
+export async function processMenuWithAI(imageFile: File) {
   try {
+    console.log("Starting AI menu processing...")
+
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required.")
+    }
+
     if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
       throw new Error("Google AI API key not configured")
     }
 
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" })
+    // Convert the file to a base64 string
+    const arrayBuffer = await imageFile.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+    const base64Image = buffer.toString("base64")
+    const mimeType = imageFile.type
 
-    const prompt = `
-      Analyze this menu image and extract the following information in JSON format:
-      {
-        "restaurant_name": "string",
-        "categories": [
-          {
-            "name": "string",
-            "items": [
-              {
-                "name": "string",
-                "description": "string",
-                "price": number,
-                "ingredients": ["string"]
-              }
-            ]
-          }
-        ]
-      }
-      
-      Please ensure:
-      - Extract all visible menu items with their names, descriptions, and prices
-      - Group items by categories (appetizers, mains, desserts, etc.)
-      - Convert prices to numbers (remove currency symbols)
-      - Include ingredients when mentioned in descriptions
-      - Return only valid JSON, no additional text
+    console.log(`Processing image: ${imageFile.name}, size: ${imageFile.size}, type: ${mimeType}`)
+
+    // Get all categories for this restaurant
+    const categories = await sql`
+      SELECT id, name FROM categories 
+      WHERE restaurant_id = ${restaurantId}
+      ORDER BY name ASC
     `
 
-    const result = await model.generateContent([
-      prompt,
-      {
-        inlineData: {
-          data: base64Image,
-          mimeType: mimeType,
-        },
-      },
-    ])
-
-    const response = await result.response
-    const text = response.text()
-
-    // Clean the response to extract JSON
-    let jsonText = text.trim()
-    if (jsonText.startsWith("```json")) {
-      jsonText = jsonText.replace(/```json\n?/, "").replace(/\n?```$/, "")
-    } else if (jsonText.startsWith("```")) {
-      jsonText = jsonText.replace(/```\n?/, "").replace(/\n?```$/, "")
+    if (!categories || categories.length === 0) {
+      throw new Error("Please create at least one category before using AI extraction.")
     }
 
-    try {
-      const extractedData = JSON.parse(jsonText)
+    const defaultCategoryId = categories[0].id
 
-      // Validate and clean the data
-      if (!extractedData.categories || !Array.isArray(extractedData.categories)) {
-        throw new Error("Invalid data structure: categories not found or not an array")
+    // Use the Gemini model - try different models if one fails
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
+
+      // Prepare the prompt
+      const prompt = `
+        Extract all menu items from this image. For each item, provide:
+        - name: the dish name
+        - description: brief description if available
+        - price: numeric price without currency symbols
+        
+        Return ONLY a JSON array like this:
+        [
+          {"name": "Dish Name", "description": "Description", "price": 12.99},
+          {"name": "Another Dish", "description": "Description", "price": 8.50}
+        ]
+        
+        Do not include any other text, just the JSON array.
+      `
+
+      console.log("Sending request to Gemini...")
+
+      // Process with Gemini
+      const result = await model.generateContent([
+        prompt,
+        {
+          inlineData: {
+            mimeType,
+            data: base64Image,
+          },
+        },
+      ])
+
+      const response = result.response
+      const text = response.text()
+
+      console.log("Received response from Gemini:", text.substring(0, 200) + "...")
+
+      // Extract JSON from the response
+      let jsonText = text.trim()
+
+      // Remove markdown code blocks if present
+      if (jsonText.startsWith("```json")) {
+        jsonText = jsonText.replace(/```json\n?/, "").replace(/\n?```$/, "")
+      } else if (jsonText.startsWith("```")) {
+        jsonText = jsonText.replace(/```\n?/, "").replace(/\n?```$/, "")
       }
 
-      // Clean and validate the data
-      const cleanedData = {
-        restaurant_name: extractedData.restaurant_name || "Extracted Menu",
-        categories: extractedData.categories.map((category: any) => ({
-          name: category.name || "Uncategorized",
-          items: (category.items || []).map((item: any) => ({
+      // Find JSON array in the text
+      const jsonMatch = jsonText.match(/\[[\s\S]*\]/)
+      if (jsonMatch) {
+        jsonText = jsonMatch[0]
+      }
+
+      let extractedItems = []
+      try {
+        extractedItems = JSON.parse(jsonText)
+        console.log(`Successfully parsed ${extractedItems.length} items`)
+      } catch (e) {
+        console.error("Failed to parse JSON:", e)
+        console.error("Raw text:", text)
+        throw new Error("Failed to parse menu items from AI response. Please try again with a clearer image.")
+      }
+
+      if (!Array.isArray(extractedItems)) {
+        throw new Error("AI response was not in the expected format.")
+      }
+
+      // Map the extracted items to the correct format with category IDs
+      const mappedItems = extractedItems.map((item, index) => {
+        const price = typeof item.price === "number" ? item.price : Number.parseFloat(item.price) || 0
+
+        return {
+          id: 1000 + index, // Temporary ID for UI purposes
+          name: item.name || "Unnamed Item",
+          description: item.description || "",
+          price: price,
+          menu_category_id: defaultCategoryId,
+          category_name: categories[0].name,
+          is_available: true,
+          order_index: index,
+        }
+      })
+
+      console.log(`Mapped ${mappedItems.length} items successfully`)
+
+      return {
+        success: true,
+        extractedItems: mappedItems,
+      }
+    } catch (error) {
+      console.error("Error with gemini-1.5-flash, trying gemini-pro-vision:", error)
+
+      // Fallback to gemini-pro-vision if the first model fails
+      try {
+        const model = genAI.getGenerativeModel({ model: "gemini-pro-vision" })
+
+        // Prepare the prompt
+        const prompt = `
+          Extract all menu items from this image. For each item, provide:
+          - name: the dish name
+          - description: brief description if available
+          - price: numeric price without currency symbols
+          
+          Return ONLY a JSON array like this:
+          [
+            {"name": "Dish Name", "description": "Description", "price": 12.99},
+            {"name": "Another Dish", "description": "Description", "price": 8.50}
+          ]
+          
+          Do not include any other text, just the JSON array.
+        `
+
+        console.log("Sending request to Gemini Pro Vision...")
+
+        // Process with Gemini
+        const result = await model.generateContent([
+          prompt,
+          {
+            inlineData: {
+              mimeType,
+              data: base64Image,
+            },
+          },
+        ])
+
+        const response = result.response
+        const text = response.text()
+
+        console.log("Received response from Gemini Pro Vision:", text.substring(0, 200) + "...")
+
+        // Extract JSON from the response
+        let jsonText = text.trim()
+
+        // Remove markdown code blocks if present
+        if (jsonText.startsWith("```json")) {
+          jsonText = jsonText.replace(/```json\n?/, "").replace(/\n?```$/, "")
+        } else if (jsonText.startsWith("```")) {
+          jsonText = jsonText.replace(/```\n?/, "").replace(/\n?```$/, "")
+        }
+
+        // Find JSON array in the text
+        const jsonMatch = jsonText.match(/\[[\s\S]*\]/)
+        if (jsonMatch) {
+          jsonText = jsonMatch[0]
+        }
+
+        let extractedItems = []
+        try {
+          extractedItems = JSON.parse(jsonText)
+          console.log(`Successfully parsed ${extractedItems.length} items`)
+        } catch (e) {
+          console.error("Failed to parse JSON:", e)
+          console.error("Raw text:", text)
+          throw new Error("Failed to parse menu items from AI response. Please try again with a clearer image.")
+        }
+
+        if (!Array.isArray(extractedItems)) {
+          throw new Error("AI response was not in the expected format.")
+        }
+
+        // Map the extracted items to the correct format with category IDs
+        const mappedItems = extractedItems.map((item, index) => {
+          const price = typeof item.price === "number" ? item.price : Number.parseFloat(item.price) || 0
+
+          return {
+            id: 1000 + index, // Temporary ID for UI purposes
             name: item.name || "Unnamed Item",
             description: item.description || "",
-            price: typeof item.price === "number" ? item.price : Number.parseFloat(item.price) || 0,
-            ingredients: Array.isArray(item.ingredients) ? item.ingredients : [],
-          })),
-        })),
-      }
+            price: price,
+            menu_category_id: defaultCategoryId,
+            category_name: categories[0].name,
+            is_available: true,
+            order_index: index,
+          }
+        })
 
-      return cleanedData
-    } catch (parseError) {
-      console.error("JSON parsing error:", parseError)
-      console.error("Raw response:", text)
-      throw new Error("Failed to parse AI response as JSON")
+        console.log(`Mapped ${mappedItems.length} items successfully`)
+
+        return {
+          success: true,
+          extractedItems: mappedItems,
+        }
+      } catch (fallbackError) {
+        console.error("Both models failed:", fallbackError)
+        throw error // Throw the original error
+      }
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error("Error in processMenuWithAI:", error)
-    throw new Error(`AI processing failed: ${error.message}`)
+    return {
+      success: false,
+      error: error.message || "Failed to process menu with AI",
+    }
+  }
+}
+
+export async function addAiItemToMenu(digitalMenuId: number, item: any) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required.")
+    }
+
+    // Create the dish in the global database
+    const newDish = await createDish({
+      name: item.name,
+      description: item.description || "",
+      price: item.price,
+      menu_category_id: item.menu_category_id,
+      is_available: true,
+    })
+
+    // Add the dish to the menu
+    await sql`
+      INSERT INTO menu_items (digital_menu_id, dish_id, order_index)
+      VALUES (${digitalMenuId}, ${newDish.id}, 
+        (SELECT COALESCE(MAX(order_index), -1) + 1 FROM menu_items WHERE digital_menu_id = ${digitalMenuId})
+      )
+    `
+
+    return { success: true }
+  } catch (error: any) {
+    console.error("Error adding AI item to menu:", error)
+    throw new Error(error.message || "Failed to add item to menu")
   }
 }
 
@@ -133,7 +301,7 @@ export async function generateMenuDescription(menuData: any) {
       throw new Error("Google AI API key not configured")
     }
 
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" })
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
 
     const prompt = `
       Based on this menu data, generate a compelling restaurant description in Spanish:

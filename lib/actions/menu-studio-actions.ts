@@ -1,222 +1,935 @@
 "use server"
 
-// Import from digital-menu-actions.ts
-import {
-  getDigitalMenus as _getDigitalMenus,
-  getDigitalMenuById as _getDigitalMenuById,
-  createDigitalMenu as _createDigitalMenu,
-  updateDigitalMenu as _updateDigitalMenu,
-  deleteDigitalMenu as _deleteDigitalMenu,
-  uploadQrCodeForDigitalMenu as _uploadQrCodeForDigitalMenu,
-  getDigitalMenuQrCodeUrl as _getDigitalMenuQrCodeUrl,
-  getDigitalMenuWithTemplate as _getDigitalMenuWithTemplate,
-} from "@/lib/actions/digital-menu-actions"
+import { sql } from "@/lib/db"
+import { revalidatePath } from "next/cache"
+import { getRestaurantIdFromSession } from "@/lib/auth"
+import { put, del } from "@vercel/blob"
 
-// Export from digital-menu-actions.ts
-export const getDigitalMenus = _getDigitalMenus
-export const getDigitalMenuById = _getDigitalMenuById
-export const createDigitalMenu = _createDigitalMenu
-export const updateDigitalMenu = _updateDigitalMenu
-export const deleteDigitalMenu = _deleteDigitalMenu
-export const uploadQrCodeForDigitalMenu = _uploadQrCodeForDigitalMenu
-export const getDigitalMenuQrCodeUrl = _getDigitalMenuQrCodeUrl
-export const getDigitalMenuWithTemplate = _getDigitalMenuWithTemplate
+interface Dish {
+  id: number
+  name: string
+  description: string
+  price: number
+  menu_category_id: number
+  category_name?: string
+  image_url?: string | null
+  is_available: boolean
+  cost_per_serving?: number
+}
 
-// Import from menu-item-actions.ts
-import {
-  getMenuItems as _getMenuItems,
-  getMenuItemById as _getMenuItemById,
-  createMenuItem as _createMenuItem,
-  updateMenuItem as _updateMenuItem,
-  deleteMenuItem as _deleteMenuItem,
-  getMenuItemsByMenuId as _getMenuItemsByMenuId,
-  getMenuItemDetails as _getMenuItemDetails,
-  getMenuItemIngredients as _getMenuItemIngredients,
-  updateMenuItemIngredients as _updateMenuItemIngredients,
-  getMenuItemCategories as _getMenuItemCategories,
-  getMenuItemReusableItems as _getMenuItemReusableItems,
-  updateMenuItemReusableItems as _updateMenuItemReusableItems,
-  updateMenuItemOrder as _updateMenuItemOrder,
-} from "@/lib/actions/menu-item-actions"
+interface Category {
+  id: number
+  name: string
+  type: string
+  order_index: number
+  restaurant_id?: number
+}
 
-// Export from menu-item-actions.ts
-export const getMenuItems = _getMenuItems
-export const getMenuItemById = _getMenuItemById
-export const createMenuItem = _createMenuItem
-export const updateMenuItem = _updateMenuItem
-export const deleteMenuItem = _deleteMenuItem
-export const getMenuItemsByMenuId = _getMenuItemsByMenuId
-export const getMenuItemDetails = _getMenuItemDetails
-export const getMenuItemIngredients = _getMenuItemIngredients
-export const updateMenuItemIngredients = _updateMenuItemIngredients
-export const getMenuItemCategories = _getMenuItemCategories
-export const getMenuItemReusableItems = _getMenuItemReusableItems
-export const updateMenuItemReusableItems = _updateMenuItemReusableItems
-export const updateMenuItemOrder = _updateMenuItemOrder
+interface DigitalMenuCategory {
+  id: number
+  digital_menu_id: number
+  category_id: number
+  category_name: string
+  order_index: number
+}
 
-// Import from category-actions.ts
-import {
-  getCategories as _getCategories,
-  createCategory as _createCategory,
-  updateCategory as _updateCategory,
-  deleteCategory as _deleteCategory,
-  getMenuCategoriesForDigitalMenu as _getMenuCategoriesForDigitalMenu,
-  getAllGlobalCategories as _getAllGlobalCategories,
-} from "@/lib/actions/category-actions"
+interface DigitalMenuCategoryUpdate {
+  id: number
+  order_index: number
+}
 
-// Export from category-actions.ts
-export const getCategories = _getCategories
-export const createCategory = _createCategory
-export const updateCategory = _updateCategory
-export const deleteCategory = _deleteCategory
-export const getMenuCategoriesForDigitalMenu = _getMenuCategoriesForDigitalMenu
-export const getAllGlobalCategories = _getAllGlobalCategories
+// Category Actions
+export async function getAllGlobalCategories(): Promise<Category[]> {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("No restaurant ID found for session.")
+      return []
+    }
+    const categories = await sql<Category[]>`
+      SELECT id, name, type, order_index, restaurant_id
+      FROM categories
+      WHERE restaurant_id = ${restaurantId}
+      ORDER BY name ASC
+    `
+    return categories
+  } catch (error) {
+    console.error("Database Error:", error)
+    throw new Error("Failed to fetch all global categories.")
+  }
+}
 
-// Import from template-actions.ts
-import {
-  getTemplates as _getTemplates,
-  getTemplateById as _getTemplateById,
-  createTemplate as _createTemplate,
-  updateTemplate as _updateTemplate,
-  deleteTemplate as _deleteTemplate,
-  applyTemplateToMenu as _applyTemplateToMenu,
-  generateTemplateWithAI as _generateTemplateWithAI,
-  seedDefaultTemplates as _seedDefaultTemplates,
-} from "@/lib/actions/template-actions"
+export async function getCategoriesByType(type: string): Promise<Category[]> {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("No restaurant ID found for session.")
+      return []
+    }
+    const categories = await sql<Category[]>`
+      SELECT id, name, type, order_index, restaurant_id
+      FROM categories
+      WHERE type = ${type} AND restaurant_id = ${restaurantId}
+      ORDER BY name ASC
+    `
+    return categories
+  } catch (error) {
+    console.error("Database Error:", error)
+    throw new Error("Failed to fetch categories by type.")
+  }
+}
 
-// Export from template-actions.ts (using aliases for old names)
-export const getTemplates = _getTemplates
-export const getMenuTemplates = _getTemplates
-export const getTemplateById = _getTemplateById
-export const getMenuTemplateById = _getTemplateById
-export const createTemplate = _createTemplate
-export const createMenuTemplate = _createTemplate
-export const updateTemplate = _updateTemplate
-export const updateMenuTemplate = _updateTemplate
-export const deleteTemplate = _deleteTemplate
-export const deleteMenuTemplate = _deleteTemplate
-export const applyTemplateToMenu = _applyTemplateToMenu
-export const generateTemplateWithAI = _generateTemplateWithAI
-export const seedDefaultTemplates = _seedDefaultTemplates
+export async function getMenuCategoriesForDigitalMenu(digitalMenuId: number): Promise<DigitalMenuCategory[]> {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("No restaurant ID found for session.")
+      return []
+    }
+    const menuCheck =
+      await sql`SELECT id FROM digital_menus WHERE id = ${digitalMenuId} AND restaurant_id = ${restaurantId}`
+    if (menuCheck.length === 0) {
+      throw new Error("Digital menu not found or does not belong to this restaurant.")
+    }
 
-// Import from cost-actions.ts
-import {
-  getCosts as _getCosts,
-  updateCost as _updateCost,
-  deleteCost as _deleteCost,
-  getRecipeCosts as _getRecipeCosts,
-  getIngredients as _getIngredients,
-  updateIngredientCost as _updateIngredientCost,
-  createCost as _createCost,
-} from "@/lib/actions/cost-actions"
+    const menuCategories = await sql<DigitalMenuCategory[]>`
+      SELECT
+        dmc.id,
+        dmc.digital_menu_id,
+        dmc.category_id,
+        c.name AS category_name,
+        dmc.order_index
+      FROM digital_menu_categories dmc
+      JOIN categories c ON dmc.category_id = c.id
+      WHERE dmc.digital_menu_id = ${digitalMenuId}
+      ORDER BY dmc.order_index ASC
+    `
+    return menuCategories
+  } catch (error) {
+    console.error("Database Error:", error)
+    throw new Error("Failed to fetch menu-specific categories.")
+  }
+}
 
-// Export from cost-actions.ts (using alias for old name)
-export const getCosts = _getCosts
-export const getCostAnalysis = _getCosts
-export const updateCost = _updateCost
-export const deleteCost = _deleteCost
-export const getRecipeCosts = _getRecipeCosts
-export const getIngredients = _getIngredients
-export const updateIngredientCost = _updateIngredientCost
-export const createCost = _createCost
+export async function createCategory(data: { name: string; type: string; order_index: number }): Promise<Category> {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required to create category.")
+    }
 
-// Import from inventory-actions.ts
-import {
-  getInventoryItems as _getInventoryItems,
-  createInventoryItem as _createInventoryItem,
-  updateInventoryItem as _updateInventoryItem,
-  deleteInventoryItem as _deleteInventoryItem,
-  createInventoryAdjustment as _createInventoryAdjustment,
-  getInventoryHistory as _getInventoryHistory,
-} from "@/lib/actions/inventory-actions"
+    const result = await sql<Category[]>`
+      INSERT INTO categories (name, type, order_index, restaurant_id)
+      VALUES (${data.name}, ${data.type}, ${data.order_index}, ${restaurantId})
+      RETURNING id, name, type, order_index, restaurant_id
+    `
+    revalidatePath("/dashboard/settings/categories")
+    return result[0]
+  } catch (error) {
+    console.error("Error creating category:", error)
+    throw new Error("Failed to create category.")
+  }
+}
 
-// Export from inventory-actions.ts (using alias for old name)
-export const getInventoryItems = _getInventoryItems
-export const getInventoryLevels = _getInventoryItems
-export const createInventoryItem = _createInventoryItem
-export const updateInventoryItem = _updateInventoryItem
-export const deleteInventoryItem = _deleteInventoryItem
-export const createInventoryAdjustment = _createInventoryAdjustment
-export const getInventoryHistory = _getInventoryHistory
+export async function addCategoryToDigitalMenu(
+  digitalMenuId: number,
+  categoryId: number,
+): Promise<DigitalMenuCategory | null> {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("No restaurant ID found for session.")
+      throw new Error("Authentication required to link category to menu.")
+    }
 
-// Import from restaurant-actions.ts
-import {
-  getRestaurantDetails as _getRestaurantDetails,
-  updateRestaurantDetails as _updateRestaurantDetails,
-} from "@/lib/actions/restaurant-actions"
+    const menuCheck =
+      await sql`SELECT id FROM digital_menus WHERE id = ${digitalMenuId} AND restaurant_id = ${restaurantId}`
+    if (menuCheck.length === 0) {
+      throw new Error("Digital menu not found or does not belong to this restaurant.")
+    }
 
-// Export from restaurant-actions.ts (using aliases for old names)
-export const getRestaurantDetails = _getRestaurantDetails
-export const getRestaurantProfile = _getRestaurantDetails
-export const updateRestaurantDetails = _updateRestaurantDetails
-export const updateRestaurantProfile = _updateRestaurantDetails
+    const categoryCheck =
+      await sql`SELECT id FROM categories WHERE id = ${categoryId} AND restaurant_id = ${restaurantId}`
+    if (categoryCheck.length === 0) {
+      throw new Error("Category not found or does not belong to this restaurant.")
+    }
 
-// Import from reusable-menu-item-actions.ts
-import {
-  getReusableMenuItems as _getReusableMenuItems,
-  createReusableMenuItem as _createReusableMenuItem,
-  updateReusableMenuItem as _updateReusableMenuItem,
-  deleteReusableMenuItem as _deleteReusableMenuItem,
-} from "@/lib/actions/reusable-menu-item-actions"
+    const existingLink = await sql<DigitalMenuCategory[]>`
+      SELECT id, digital_menu_id, category_id, order_index FROM digital_menu_categories
+      WHERE digital_menu_id = ${digitalMenuId} AND category_id = ${categoryId}
+    `
+    if (existingLink.length > 0) {
+      console.log(`Category ${categoryId} is already linked to menu ${digitalMenuId}. Returning existing link.`)
+      return existingLink[0]
+    }
 
-// Export from reusable-menu-item-actions.ts
-export const getReusableMenuItems = _getReusableMenuItems
-export const createReusableMenuItem = _createReusableMenuItem
-export const updateReusableMenuItem = _updateReusableMenuItem
-export const deleteReusableMenuItem = _deleteReusableMenuItem
+    const maxOrderResult = await sql<{ max_order: number }[]>`
+      SELECT COALESCE(MAX(order_index), 0) as max_order
+      FROM digital_menu_categories
+      WHERE digital_menu_id = ${digitalMenuId}
+    `
+    const nextMenuOrderIndex = maxOrderResult[0].max_order + 1
 
-// Import from supplier-actions.ts
-import {
-  getSuppliers as _getSuppliers,
-  getSupplierById as _getSupplierById,
-  createSupplier as _createSupplier,
-  updateSupplier as _updateSupplier,
-  deleteSupplier as _deleteSupplier,
-} from "@/lib/actions/supplier-actions"
+    const [newLink] = await sql<DigitalMenuCategory[]>`
+      INSERT INTO digital_menu_categories (digital_menu_id, category_id, order_index)
+      VALUES (${digitalMenuId}, ${categoryId}, ${nextMenuOrderIndex})
+      RETURNING id, digital_menu_id, category_id, order_index
+    `
+    const [categoryNameResult] = await sql<{ name: string }[]>`
+      SELECT name FROM categories WHERE id = ${newLink.category_id}
+    `
+    return { ...newLink, category_name: categoryNameResult.name }
+  } catch (error) {
+    console.error("Database Error:", error)
+    throw new Error("Failed to add category to digital menu.")
+  }
+}
 
-// Export from supplier-actions.ts
-export const getSuppliers = _getSuppliers
-export const getSupplierById = _getSupplierById
-export const createSupplier = _createSupplier
-export const updateSupplier = _updateSupplier
-export const deleteSupplier = _deleteSupplier
+export async function removeCategoryFromDigitalMenu(
+  digitalMenuId: number,
+  digitalMenuCategoryId: number,
+): Promise<void> {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("No restaurant ID found for session.")
+      throw new Error("Authentication required to remove category from menu.")
+    }
 
-// Import from ai-menu-actions.ts
-import {
-  mockAiMenuUpload as _mockAiMenuUpload,
-  processMenuWithAI as _processMenuWithAI,
-  generateMenuDescription as _generateMenuDescription,
-} from "@/lib/actions/ai-menu-actions"
+    const menuCheck =
+      await sql`SELECT id FROM digital_menus WHERE id = ${digitalMenuId} AND restaurant_id = ${restaurantId}`
+    if (menuCheck.length === 0) {
+      throw new Error("Digital menu not found or does not belong to this restaurant.")
+    }
 
-// Export from ai-menu-actions.ts
-export const mockAiMenuUpload = _mockAiMenuUpload
-export const processMenuWithAI = _processMenuWithAI
-export const generateMenuDescription = _generateMenuDescription
+    await sql`
+      DELETE FROM digital_menu_categories
+      WHERE id = ${digitalMenuCategoryId} AND digital_menu_id = ${digitalMenuId}
+    `
 
-// Import from brand-kit-actions.ts
-import {
-  getBrandKit as _getBrandKit,
-  updateBrandKit as _updateBrandKit,
-  createBrandKit as _createBrandKit,
-} from "@/lib/actions/brand-kit-actions"
+    const remainingCategories = await sql<DigitalMenuCategory[]>`
+      SELECT id, order_index FROM digital_menu_categories
+      WHERE digital_menu_id = ${digitalMenuId}
+      ORDER BY order_index ASC
+    `
+    for (let i = 0; i < remainingCategories.length; i++) {
+      if (remainingCategories[i].order_index !== i + 1) {
+        await sql`
+          UPDATE digital_menu_categories
+          SET order_index = ${i + 1}
+          WHERE id = ${remainingCategories[i].id}
+        `
+      }
+    }
+  } catch (error) {
+    console.error("Database Error:", error)
+    throw new Error("Failed to remove category from digital menu.")
+  }
+}
 
-// Export from brand-kit-actions.ts
-export const getBrandKit = _getBrandKit
-export const updateBrandKit = _updateBrandKit
-export const createBrandKit = _createBrandKit
+export async function updateCategory(
+  id: number,
+  data: { name?: string; type?: string; order_index?: number },
+): Promise<Category> {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("No restaurant ID found for session.")
+      throw new Error("Authentication required to update category.")
+    }
 
-// Import from recipe-actions.ts
-import {
-  getRecipes as _getRecipes,
-  getRecipeById as _getRecipeById,
-  createRecipe as _createRecipe,
-  updateRecipe as _updateRecipe,
-  deleteRecipe as _deleteRecipe,
-} from "@/lib/actions/recipe-actions"
+    const [updatedCategory] = await sql<Category[]>`
+      UPDATE categories
+      SET
+        name = COALESCE(${data.name}, name),
+        type = COALESCE(${data.type}, type),
+        order_index = COALESCE(${data.order_index}, order_index),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${id} AND restaurant_id = ${restaurantId}
+      RETURNING id, name, type, order_index, restaurant_id
+    `
+    if (!updatedCategory) {
+      throw new Error("Category not found or does not belong to this restaurant.")
+    }
+    revalidatePath("/dashboard/settings/categories")
+    return updatedCategory
+  } catch (error) {
+    console.error("Error updating category:", error)
+    throw new Error("Failed to update category.")
+  }
+}
 
-// Export from recipe-actions.ts
-export const getRecipes = _getRecipes
-export const getRecipeById = _getRecipeById
-export const createRecipe = _createRecipe
-export const updateRecipe = _updateRecipe
-export const deleteRecipe = _deleteRecipe
+export async function updateDigitalMenuCategoryOrder(updates: DigitalMenuCategoryUpdate[]): Promise<void> {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required to update category order.")
+    }
+
+    for (const update of updates) {
+      const checkOwnership = await sql`
+        SELECT dmc.id
+        FROM digital_menu_categories dmc
+        JOIN digital_menus dm ON dmc.digital_menu_id = dm.id
+        WHERE dmc.id = ${update.id} AND dm.restaurant_id = ${restaurantId}
+      `
+      if (checkOwnership.length === 0) {
+        throw new Error(`Digital menu category with ID ${update.id} not found or does not belong to this restaurant.`)
+      }
+
+      await sql`
+        UPDATE digital_menu_categories
+        SET order_index = ${update.order_index}
+        WHERE id = ${update.id}
+      `
+    }
+  } catch (error) {
+    console.error("Database Error:", error)
+    throw new Error("Failed to update digital menu category order.")
+  }
+}
+
+export async function deleteCategory(id: number): Promise<{ success: boolean }> {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required to delete category.")
+    }
+
+    await sql`
+      DELETE FROM categories
+      WHERE id = ${id} AND restaurant_id = ${restaurantId}
+    `
+    revalidatePath("/dashboard/settings/categories")
+    return { success: true }
+  } catch (error) {
+    console.error("Error deleting category:", error)
+    throw new Error("Failed to delete category.")
+  }
+}
+
+// GLOBAL DISHES - Single source of truth
+export async function getAllDishes(): Promise<Dish[]> {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("No restaurant ID found for session.")
+      return []
+    }
+    const result = await sql`
+      SELECT 
+        d.id, 
+        d.name, 
+        d.description, 
+        d.price, 
+        d.menu_category_id, 
+        c.name as category_name,
+        d.image_url, 
+        true as is_available,
+        0 as cost_per_serving
+      FROM dishes d
+      LEFT JOIN categories c ON d.menu_category_id = c.id
+      WHERE d.restaurant_id = ${restaurantId}
+      ORDER BY d.created_at DESC
+    `
+    return result || []
+  } catch (error) {
+    console.error("Error fetching dishes:", error)
+    throw new Error("Failed to fetch dishes.")
+  }
+}
+
+export async function createDish(data: {
+  name: string
+  description: string
+  price: number
+  menu_category_id: number
+  image_file?: File | null
+  is_available?: boolean
+}) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required to create dish.")
+    }
+
+    // Check if a dish with this name already exists for this restaurant
+    const existingDish = await sql`
+      SELECT id FROM dishes 
+      WHERE name = ${data.name} AND restaurant_id = ${restaurantId}
+    `
+
+    if (existingDish.length > 0) {
+      throw new Error(`A dish named "${data.name}" already exists. Please use a different name.`)
+    }
+
+    let imageUrl: string | null = null
+    if (data.image_file) {
+      try {
+        const filename = `dishes/${Date.now()}-${data.image_file.name.replace(/[^a-zA-Z0-9.]/g, "_")}`
+        const { url } = await put(filename, data.image_file, { access: "public" })
+        imageUrl = url
+      } catch (uploadError) {
+        console.error("Error uploading image:", uploadError)
+        throw new Error("Failed to upload image.")
+      }
+    }
+
+    const result = await sql`
+      INSERT INTO dishes (
+        name, 
+        description, 
+        price, 
+        menu_category_id, 
+        image_url, 
+        restaurant_id
+      )
+      VALUES (
+        ${data.name}, 
+        ${data.description}, 
+        ${data.price}, 
+        ${data.menu_category_id}, 
+        ${imageUrl}, 
+        ${restaurantId}
+      )
+      RETURNING id, name
+    `
+    revalidatePath("/dashboard/menu-studio/digital-menu")
+    revalidatePath("/dashboard/menu-studio/recipes")
+    revalidatePath("/dashboard/operations-hub/recipes")
+    return result[0]
+  } catch (error) {
+    console.error("Error creating dish:", error)
+    throw new Error(error.message || "Failed to create dish.")
+  }
+}
+
+export async function updateDish(
+  id: number,
+  data: {
+    name?: string
+    description?: string
+    price?: number
+    menu_category_id?: number
+    image_file?: File | null
+    image_url?: string | null
+    is_available?: boolean
+  },
+) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required to update dish.")
+    }
+
+    const dishCheck = await sql`
+      SELECT id FROM dishes WHERE id = ${id} AND restaurant_id = ${restaurantId}
+    `
+    if (dishCheck.length === 0) {
+      throw new Error("Dish not found or does not belong to this restaurant.")
+    }
+
+    let imageUrl: string | null | undefined = data.image_url
+    if (data.image_file !== undefined) {
+      if (data.image_file === null) {
+        imageUrl = null
+      } else if (data.image_file instanceof File) {
+        try {
+          const filename = `dishes/${Date.now()}-${data.image_file.name.replace(/[^a-zA-Z0-9.]/g, "_")}`
+          const { url } = await put(filename, data.image_file, { access: "public" })
+          imageUrl = url
+        } catch (uploadError) {
+          console.error("Error uploading image:", uploadError)
+          throw new Error("Failed to upload image.")
+        }
+      }
+    }
+
+    const result = await sql`
+      UPDATE dishes
+      SET
+        name = COALESCE(${data.name}, name),
+        description = COALESCE(${data.description}, description),
+        price = COALESCE(${data.price}, price),
+        menu_category_id = COALESCE(${data.menu_category_id}, menu_category_id),
+        image_url = COALESCE(${imageUrl}, image_url),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${id}
+      RETURNING id, name
+    `
+    revalidatePath("/dashboard/menu-studio/digital-menu")
+    revalidatePath("/dashboard/menu-studio/recipes")
+    revalidatePath("/dashboard/operations-hub/recipes")
+    return result[0]
+  } catch (error) {
+    console.error("Error updating dish:", error)
+    throw new Error("Failed to update dish.")
+  }
+}
+
+export async function deleteDish(id: number) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required to delete dish.")
+    }
+
+    const dishCheck = await sql`
+      SELECT id, image_url FROM dishes WHERE id = ${id} AND restaurant_id = ${restaurantId}
+    `
+    if (dishCheck.length === 0) {
+      throw new Error("Dish not found or does not belong to this restaurant.")
+    }
+
+    if (dishCheck[0].image_url) {
+      try {
+        await del(dishCheck[0].image_url)
+      } catch (e) {
+        console.error("Failed to delete image:", e)
+      }
+    }
+
+    await sql`
+      DELETE FROM dishes
+      WHERE id = ${id}
+    `
+    revalidatePath("/dashboard/menu-studio/digital-menu")
+    revalidatePath("/dashboard/menu-studio/recipes")
+    revalidatePath("/dashboard/operations-hub/recipes")
+    return { success: true }
+  } catch (error) {
+    console.error("Error deleting dish:", error)
+    throw new Error("Failed to delete dish.")
+  }
+}
+
+// Digital Menu Actions
+export async function getDigitalMenus() {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("No restaurant ID found for session.")
+      return []
+    }
+    const menus = await sql`
+      SELECT id, name, status, template_id, qr_code_url, created_at, updated_at
+      FROM digital_menus
+      WHERE restaurant_id = ${restaurantId}
+      ORDER BY created_at DESC
+    `
+    return menus
+  } catch (error) {
+    console.error("Error fetching digital menus:", error)
+    throw new Error("Failed to fetch digital menus.")
+  }
+}
+
+export async function createDigitalMenu(data: { name: string; status: string }) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required to create digital menu.")
+    }
+
+    const result = await sql`
+      INSERT INTO digital_menus (name, status, restaurant_id)
+      VALUES (${data.name}, ${data.status}, ${restaurantId})
+      RETURNING id, name, status, template_id, qr_code_url, created_at, updated_at
+    `
+    revalidatePath("/dashboard/menu-studio/digital-menu")
+    return result[0]
+  } catch (error) {
+    console.error("Error creating digital menu:", error)
+    throw new Error("Failed to create digital menu.")
+  }
+}
+
+export async function updateDigitalMenu(id: number, data: { name?: string; status?: string; template_id?: number }) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required to update digital menu.")
+    }
+
+    const result = await sql`
+      UPDATE digital_menus
+      SET
+        name = COALESCE(${data.name}, name),
+        status = COALESCE(${data.status}, status),
+        template_id = COALESCE(${data.template_id}, template_id),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${id} AND restaurant_id = ${restaurantId}
+      RETURNING id, name, status, template_id, qr_code_url, created_at, updated_at
+    `
+    revalidatePath("/dashboard/menu-studio/digital-menu")
+    return result[0]
+  } catch (error) {
+    console.error("Error updating digital menu:", error)
+    throw new Error("Failed to update digital menu.")
+  }
+}
+
+export async function deleteDigitalMenu(id: number) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required to delete digital menu.")
+    }
+
+    const menuCheck = await sql`
+      SELECT qr_code_url FROM digital_menus WHERE id = ${id} AND restaurant_id = ${restaurantId}
+    `
+    if (menuCheck.length === 0) {
+      throw new Error("Digital menu not found or does not belong to this restaurant.")
+    }
+
+    if (menuCheck[0].qr_code_url) {
+      try {
+        await del(menuCheck[0].qr_code_url)
+      } catch (e) {
+        console.error("Failed to delete QR code image:", e)
+      }
+    }
+
+    await sql`
+      DELETE FROM digital_menus
+      WHERE id = ${id} AND restaurant_id = ${restaurantId}
+    `
+    revalidatePath("/dashboard/menu-studio/digital-menu")
+    return { success: true }
+  } catch (error) {
+    console.error("Error deleting digital menu:", error)
+    throw new Error("Failed to delete digital menu.")
+  }
+}
+
+export async function uploadQrCodeForDigitalMenu(menuId: number, base64Image: string) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required to upload QR code.")
+    }
+
+    const menuCheck = await sql`
+      SELECT id FROM digital_menus WHERE id = ${menuId} AND restaurant_id = ${restaurantId}
+    `
+    if (menuCheck.length === 0) {
+      throw new Error("Digital menu not found or does not belong to this restaurant.")
+    }
+
+    const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "")
+    const buffer = Buffer.from(base64Data, "base64")
+    const blob = new Blob([buffer])
+
+    const filename = `qr-codes/menu-${menuId}-${Date.now()}.png`
+    const { url } = await put(filename, blob, { access: "public" })
+
+    await sql`
+      UPDATE digital_menus
+      SET qr_code_url = ${url}
+      WHERE id = ${menuId}
+    `
+
+    return { success: true, qrCodeUrl: url }
+  } catch (error) {
+    console.error("Error uploading QR code:", error)
+    throw new Error("Failed to upload QR code.")
+  }
+}
+
+// Menu Items - Simple references to global dishes
+export async function getMenuItemsByMenuId(digitalMenuId: number) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required.")
+    }
+
+    const menuItems = await sql`
+      SELECT 
+        mi.id, 
+        mi.digital_menu_id,
+        mi.dish_id,
+        mi.order_index,
+        d.name,
+        d.description,
+        d.price,
+        d.image_url,
+        d.menu_category_id,
+        c.name as category_name,
+        true as is_available
+      FROM menu_items mi
+      JOIN dishes d ON mi.dish_id = d.id
+      LEFT JOIN categories c ON d.menu_category_id = c.id
+      JOIN digital_menus dm ON mi.digital_menu_id = dm.id
+      WHERE mi.digital_menu_id = ${digitalMenuId} 
+        AND dm.restaurant_id = ${restaurantId}
+      ORDER BY mi.order_index ASC, mi.id ASC
+    `
+
+    return menuItems
+  } catch (error) {
+    console.error("Error fetching menu items by menu ID:", error)
+    return []
+  }
+}
+
+export async function addDishToMenu(digitalMenuId: number, dishId: number) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required.")
+    }
+
+    const menuCheck = await sql`
+      SELECT id FROM digital_menus WHERE id = ${digitalMenuId} AND restaurant_id = ${restaurantId}
+    `
+    if (menuCheck.length === 0) {
+      throw new Error("Digital menu not found or does not belong to this restaurant.")
+    }
+
+    const dishCheck = await sql`
+      SELECT id FROM dishes WHERE id = ${dishId} AND restaurant_id = ${restaurantId}
+    `
+    if (dishCheck.length === 0) {
+      throw new Error("Dish not found or does not belong to this restaurant.")
+    }
+
+    // Check if dish is already on this menu
+    const existingItem = await sql`
+      SELECT id FROM menu_items WHERE digital_menu_id = ${digitalMenuId} AND dish_id = ${dishId}
+    `
+    if (existingItem.length > 0) {
+      throw new Error("This dish is already on the menu.")
+    }
+
+    // Get the max order_index for this menu
+    const maxOrderResult = await sql`
+      SELECT COALESCE(MAX(order_index), -1) as max_order
+      FROM menu_items
+      WHERE digital_menu_id = ${digitalMenuId}
+    `
+    const nextOrderIndex = maxOrderResult[0].max_order + 1
+
+    const result = await sql`
+      INSERT INTO menu_items (digital_menu_id, dish_id, order_index)
+      VALUES (${digitalMenuId}, ${dishId}, ${nextOrderIndex})
+      RETURNING id
+    `
+
+    revalidatePath(`/dashboard/menu-studio/digital-menu`)
+    return result[0]
+  } catch (error) {
+    console.error("Error adding dish to menu:", error)
+    throw new Error(error.message || "Failed to add dish to menu.")
+  }
+}
+
+export async function createMenuItem(data: {
+  digital_menu_id: number
+  dish_id?: number
+  name?: string
+  description?: string
+  price?: number
+  menu_category_id?: number
+  isAvailable?: boolean
+}) {
+  try {
+    if (data.dish_id) {
+      // Adding existing dish to menu
+      return await addDishToMenu(data.digital_menu_id, data.dish_id)
+    } else {
+      // Creating new dish and adding to menu
+      if (!data.name || !data.price || !data.menu_category_id) {
+        throw new Error("Name, price, and category are required to create a new dish.")
+      }
+
+      const newDish = await createDish({
+        name: data.name,
+        description: data.description || "",
+        price: data.price,
+        menu_category_id: data.menu_category_id,
+        is_available: data.isAvailable,
+      })
+
+      return await addDishToMenu(data.digital_menu_id, newDish.id)
+    }
+  } catch (error) {
+    console.error("Error creating menu item:", error)
+    throw new Error(error.message || "Failed to create menu item.")
+  }
+}
+
+export async function updateMenuItem(
+  id: number,
+  data: {
+    name?: string
+    description?: string
+    price?: number
+    menu_category_id?: number
+    isAvailable?: boolean
+    orderIndex?: number
+  },
+  imageFile?: File | null,
+) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required.")
+    }
+
+    const menuItemCheck = await sql`
+      SELECT mi.id, mi.digital_menu_id, mi.dish_id
+      FROM menu_items mi
+      JOIN digital_menus dm ON mi.digital_menu_id = dm.id
+      WHERE mi.id = ${id} AND dm.restaurant_id = ${restaurantId}
+    `
+    if (menuItemCheck.length === 0) {
+      throw new Error("Menu item not found or does not belong to this restaurant.")
+    }
+
+    const menuItem = menuItemCheck[0]
+    const dishId = menuItem.dish_id
+
+    // Update the global dish
+    if (
+      data.name ||
+      data.description ||
+      data.price ||
+      data.menu_category_id ||
+      data.isAvailable ||
+      imageFile !== undefined
+    ) {
+      await updateDish(dishId, {
+        name: data.name,
+        description: data.description,
+        price: data.price,
+        menu_category_id: data.menu_category_id,
+        image_file: imageFile,
+        is_available: data.isAvailable,
+      })
+    }
+
+    // Update order index if provided
+    if (data.orderIndex !== undefined) {
+      await sql`
+        UPDATE menu_items
+        SET order_index = ${data.orderIndex}
+        WHERE id = ${id}
+      `
+    }
+
+    revalidatePath(`/dashboard/menu-studio/digital-menu`)
+    return { success: true }
+  } catch (error) {
+    console.error("Error updating menu item:", error)
+    throw new Error(error.message || "Failed to update menu item.")
+  }
+}
+
+export async function deleteMenuItem(id: number) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required.")
+    }
+
+    const menuItemCheck = await sql`
+      SELECT mi.id, mi.digital_menu_id
+      FROM menu_items mi
+      JOIN digital_menus dm ON mi.digital_menu_id = dm.id
+      WHERE mi.id = ${id} AND dm.restaurant_id = ${restaurantId}
+    `
+    if (menuItemCheck.length === 0) {
+      throw new Error("Menu item not found or does not belong to this restaurant.")
+    }
+
+    const menuItem = menuItemCheck[0]
+
+    // Only remove from menu, don't delete the global dish
+    await sql`
+      DELETE FROM menu_items
+      WHERE id = ${id}
+    `
+
+    revalidatePath(`/dashboard/menu-studio/digital-menu`)
+    return { success: true }
+  } catch (error) {
+    console.error("Error deleting menu item:", error)
+    throw new Error("Failed to delete menu item.")
+  }
+}
+
+export async function updateMenuItemOrder(updates: { id: number; order_index: number }[]) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required.")
+    }
+
+    for (const update of updates) {
+      await sql`
+        UPDATE menu_items
+        SET order_index = ${update.order_index}
+        WHERE id = ${update.id}
+      `
+    }
+
+    revalidatePath(`/dashboard/menu-studio/digital-menu`)
+    return { success: true }
+  } catch (error) {
+    console.error("Error updating menu item order:", error)
+    throw new Error("Failed to update menu item order.")
+  }
+}
+
+// Menu Templates
+export async function getMenuTemplates() {
+  try {
+    const templates = await sql`
+      SELECT id, name, description, preview_image_url
+      FROM menu_templates
+      ORDER BY name ASC
+    `
+    return templates
+  } catch (error) {
+    console.error("Error fetching menu templates:", error)
+    throw new Error("Failed to fetch menu templates.")
+  }
+}
+
+export async function applyTemplateToMenu(menuId: number, templateId: number) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required.")
+    }
+
+    const menuCheck = await sql`
+      SELECT id FROM digital_menus WHERE id = ${menuId} AND restaurant_id = ${restaurantId}
+    `
+    if (menuCheck.length === 0) {
+      throw new Error("Menu not found or does not belong to this restaurant.")
+    }
+
+    await sql`
+      UPDATE digital_menus
+      SET template_id = ${templateId}
+      WHERE id = ${menuId}
+    `
+
+    revalidatePath(`/dashboard/menu-studio/digital-menu`)
+    revalidatePath(`/menu/${menuId}`)
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error applying template to menu:", error)
+    throw new Error(`Failed to apply template: ${error.message}`)
+  }
+}
+
+// Legacy aliases for backward compatibility
+export const getReusableMenuItems = getAllDishes
+export const createReusableMenuItem = createDish
+export const updateReusableMenuItem = updateDish
+export const deleteReusableMenuItem = deleteDish

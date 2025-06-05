@@ -1,7 +1,9 @@
 "use client"
 import { useEffect, useState } from "react"
+import type React from "react"
+
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useToast } from "@/hooks/use-toast"
 import {
@@ -16,14 +18,21 @@ import {
   deleteMenuItem,
   getAllGlobalCategories,
   applyTemplateToMenu,
+  getAllDishes,
 } from "@/lib/actions/menu-studio-actions"
+import { processMenuWithAI, addAiItemToMenu } from "@/lib/actions/ai-menu-actions"
 import type { DigitalMenu } from "@/lib/types"
-import { PlusIcon } from "lucide-react"
+import { PlusIcon, Eye, QrCode, Settings, Brain, Upload, X } from "lucide-react"
 import { DigitalMenuFormDialog } from "@/components/digital-menu-form-dialog"
-import { DigitalMenusList } from "@/components/digital-menus-list"
 import { QRDisplayDialog } from "@/components/qr-display-dialog"
 import { MenuItemFormDialog } from "@/components/menu-item-form-dialog"
 import { CategoryFormDialog } from "@/components/category-form-dialog"
+import { MenuItemsList } from "@/components/menu-items-list"
+import { MenuTemplatesSection } from "@/components/menu-templates-section"
+import { Progress } from "@/components/ui/progress"
+import { Input } from "@/components/ui/input"
+import { Separator } from "@/components/ui/separator"
+import { Badge } from "@/components/ui/badge"
 
 interface MenuItem {
   id: number
@@ -33,7 +42,9 @@ interface MenuItem {
   image_url?: string
   menu_category_id: number
   category_name?: string
-  reusable_menu_item_id?: number
+  dish_id?: number
+  is_available: boolean
+  order_index: number
 }
 
 interface GlobalCategory {
@@ -55,8 +66,22 @@ interface MenuTemplate {
   id: number
   name: string
   description: string
-  preview_image: string
+  preview_image_url: string
 }
+
+interface Dish {
+  id: number
+  name: string
+  description: string
+  price: number
+  menu_category_id: number
+  category_name?: string
+  image_url?: string | null
+  is_available: boolean
+  cost_per_serving?: number
+}
+
+type AiOnboardingStep = "idle" | "upload" | "processing" | "review" | "complete"
 
 export default function DigitalMenuHubPage() {
   const { toast } = useToast()
@@ -81,12 +106,20 @@ export default function DigitalMenuHubPage() {
   const [templates, setTemplates] = useState<MenuTemplate[]>([])
   const [currentMenuItem, setCurrentMenuItem] = useState<MenuItem | null>(null)
   const [currentCategoryToEdit, setCurrentCategoryToEdit] = useState<GlobalCategory | null>(null)
+  const [dishes, setDishes] = useState<Dish[]>([])
+
+  // AI states
+  const [aiOnboardingStep, setAiOnboardingStep] = useState<AiOnboardingStep>("idle")
+  const [aiMenuFile, setAiMenuFile] = useState<File | null>(null)
+  const [aiProcessingProgress, setAiProcessingProgress] = useState(0)
+  const [aiExtractedItems, setAiExtractedItems] = useState<MenuItem[]>([])
 
   // Initial data fetching
   useEffect(() => {
     fetchMenus()
     fetchTemplates()
     fetchGlobalCategories()
+    fetchDishes()
   }, [])
 
   // Fetch menu items and categories when selectedMenu changes
@@ -180,14 +213,31 @@ export default function DigitalMenuHubPage() {
     }
   }
 
+  const fetchDishes = async () => {
+    try {
+      const items = await getAllDishes()
+      setDishes(items)
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "No se pudieron cargar los platillos globales.",
+        variant: "destructive",
+      })
+      setDishes([])
+    }
+  }
+
   const handleCreateOrUpdateMenu = async (menuData: { name: string; status: string }) => {
     try {
       if (editingMenu) {
         await updateDigitalMenu(editingMenu.id, menuData)
       } else {
-        await createDigitalMenu(menuData)
+        const newMenu = await createDigitalMenu(menuData)
+        if (!selectedMenu) {
+          setSelectedMenu(newMenu)
+        }
       }
-      await fetchMenus() // Re-fetch menus to update the list
+      await fetchMenus()
       setIsFormDialogOpen(false)
       setEditingMenu(null)
     } catch (err: any) {
@@ -200,7 +250,10 @@ export default function DigitalMenuHubPage() {
     if (window.confirm("Are you sure you want to delete this menu? This action cannot be undone.")) {
       try {
         await deleteDigitalMenu(id)
-        await fetchMenus() // Re-fetch menus to update the list
+        if (selectedMenu?.id === id) {
+          setSelectedMenu(null)
+        }
+        await fetchMenus()
       } catch (err: any) {
         console.error("Failed to delete digital menu:", err)
         setError("Failed to delete digital menu. Please try again.")
@@ -219,12 +272,8 @@ export default function DigitalMenuHubPage() {
       setQrCodeUrl(menu.qr_code_url)
       setIsQrDialogOpen(true)
     } else {
-      // If no QR code exists, generate a placeholder or trigger generation logic
-      // For now, we'll just show a placeholder and indicate it needs generation
       setQrCodeUrl(`/placeholder.svg?text=QR+Code+for+${encodeURIComponent(menu.name)}`)
       setIsQrDialogOpen(true)
-      // In a real app, you'd trigger a server action here to generate and upload the QR
-      // For example: await uploadQrCodeForDigitalMenu(menu.id, 'base64_image_data_here');
     }
   }
 
@@ -233,7 +282,7 @@ export default function DigitalMenuHubPage() {
       const result = await uploadQrCodeForDigitalMenu(menuId, base64Image)
       if (result.success) {
         setQrCodeUrl(result.qrCodeUrl)
-        await fetchMenus() // Refresh menus to show updated QR URL
+        await fetchMenus()
       }
     } catch (err: any) {
       console.error("Failed to upload QR code:", err)
@@ -286,7 +335,7 @@ export default function DigitalMenuHubPage() {
     try {
       await applyTemplateToMenu(selectedMenu.id, templateId)
       toast({ title: "Éxito", description: "Plantilla aplicada exitosamente." })
-      fetchMenus() // Refresh to get template name
+      fetchMenus()
     } catch (error: any) {
       toast({
         title: "Error",
@@ -302,11 +351,179 @@ export default function DigitalMenuHubPage() {
     }
   }
 
+  // AI Functions
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0]
+      setAiMenuFile(file)
+      setAiOnboardingStep("upload")
+      toast({
+        title: "File selected",
+        description: `Selected ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`,
+      })
+    }
+  }
+
+  const startAiProcessing = async () => {
+    if (!aiMenuFile || !selectedMenu) return
+
+    setAiOnboardingStep("processing")
+    setAiProcessingProgress(0)
+
+    try {
+      // Create a progress interval to show activity
+      const progressInterval = setInterval(() => {
+        setAiProcessingProgress((prev) => Math.min(prev + 5, 90))
+      }, 500)
+
+      // Create FormData for the upload
+      const formData = new FormData()
+      formData.append("menu", aiMenuFile)
+      formData.append("menuId", selectedMenu.id.toString())
+
+      // Process with AI
+      const result = await processMenuWithAI(aiMenuFile)
+
+      // Clear the interval and set to 100%
+      clearInterval(progressInterval)
+      setAiProcessingProgress(100)
+
+      if (result.success && result.extractedItems) {
+        setAiExtractedItems(result.extractedItems)
+        setAiOnboardingStep("review")
+        toast({
+          title: "Menu Processed Successfully",
+          description: `Found ${result.extractedItems.length} items in your menu.`,
+        })
+      } else {
+        throw new Error(result.error || "Failed to process menu")
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to process menu with AI",
+        variant: "destructive",
+      })
+      setAiOnboardingStep("upload")
+    }
+  }
+
+  const handleAcceptAiItem = async (item: MenuItem) => {
+    if (!selectedMenu) return
+
+    try {
+      await addAiItemToMenu(selectedMenu.id, item)
+
+      setAiExtractedItems((prev) => prev.filter((i) => i !== item))
+      toast({ title: "Éxito", description: `${item.name} añadido al menú.` })
+      fetchMenuItems(selectedMenu.id)
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "No se pudo añadir el elemento.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleAcceptAllAiItems = async () => {
+    if (!selectedMenu || aiExtractedItems.length === 0) return
+
+    try {
+      let successCount = 0
+      for (const item of aiExtractedItems) {
+        try {
+          await addAiItemToMenu(selectedMenu.id, item)
+          successCount++
+        } catch (itemError) {
+          console.error(`Failed to add item ${item.name}:`, itemError)
+        }
+      }
+
+      setAiExtractedItems([])
+      toast({
+        title: "Éxito",
+        description: `${successCount} elementos añadidos al menú.`,
+      })
+      fetchMenuItems(selectedMenu.id)
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "No se pudieron añadir todos los elementos.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const renderAiReviewSection = () => {
+    if (aiOnboardingStep !== "review") return null
+
+    return (
+      <Card className="mb-6">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Review Extracted Items</CardTitle>
+              <CardDescription>
+                We found {aiExtractedItems.length} items in your menu. Review and add them to your digital menu.
+              </CardDescription>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setAiOnboardingStep("idle")}>
+              <X className="h-4 w-4 mr-1" /> Close
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {aiExtractedItems.length === 0 ? (
+            <div className="text-center py-4">
+              <p className="text-lg font-medium">All items have been added!</p>
+              <Button onClick={() => setAiOnboardingStep("idle")} className="mt-4">
+                Process Another Menu
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="flex justify-end">
+                <Button onClick={handleAcceptAllAiItems}>Add All Items</Button>
+              </div>
+              <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                {aiExtractedItems.map((item, index) => (
+                  <div
+                    key={index}
+                    className="border rounded-lg p-4 flex justify-between items-start hover:bg-gray-50 transition-colors"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-medium">{item.name}</h3>
+                        <span className="text-lg font-bold text-green-600">
+                          ${typeof item.price === "number" ? item.price.toFixed(2) : item.price}
+                        </span>
+                      </div>
+                      {item.description && <p className="text-sm text-gray-600 mt-1">{item.description}</p>}
+                      {item.category_name && (
+                        <Badge variant="outline" className="mt-2">
+                          {item.category_name}
+                        </Badge>
+                      )}
+                    </div>
+                    <Button size="sm" onClick={() => handleAcceptAiItem(item)}>
+                      Add to Menu
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <TooltipProvider>
       <div className="flex flex-col gap-6 p-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Digital Menus</h1>
+          <h1 className="text-3xl font-bold">Digital Menu Studio</h1>
           <Button
             onClick={() => {
               setEditingMenu(null)
@@ -314,7 +531,7 @@ export default function DigitalMenuHubPage() {
             }}
           >
             <PlusIcon className="mr-2 h-5 w-5" />
-            Nuevo Menú
+            New Menu
           </Button>
         </div>
 
@@ -332,17 +549,233 @@ export default function DigitalMenuHubPage() {
           </Card>
         ) : menus.length === 0 ? (
           <Card>
-            <CardContent className="p-6 text-center">No digital menus found. Create one to get started!</CardContent>
+            <CardContent className="p-6 text-center">
+              <p className="text-lg text-gray-600 mb-4">No digital menus found.</p>
+              <Button
+                onClick={() => {
+                  setEditingMenu(null)
+                  setIsFormDialogOpen(true)
+                }}
+              >
+                <PlusIcon className="mr-2 h-5 w-5" />
+                Create Your First Menu
+              </Button>
+            </CardContent>
           </Card>
         ) : (
-          <DigitalMenusList
-            menus={menus}
-            onEdit={handleEditMenu}
-            onDelete={handleDeleteMenu}
-            onGenerateQr={handleGenerateQr}
-          />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Menu Selection Sidebar */}
+            <div className="lg:col-span-1">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Your Menus</CardTitle>
+                  <CardDescription>Select a menu to manage</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {menus.map((menu) => (
+                    <div
+                      key={menu.id}
+                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedMenu?.id === menu.id ? "bg-blue-50 border-blue-200" : "hover:bg-gray-50 border-gray-200"
+                      }`}
+                      onClick={() => setSelectedMenu(menu)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-medium">{menu.name}</h3>
+                          <p className="text-sm text-gray-500">{menu.status}</p>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handlePreviewMenu()
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleGenerateQr(menu)
+                            }}
+                          >
+                            <QrCode className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Main Content Area */}
+            <div className="lg:col-span-2">
+              {selectedMenu ? (
+                <div className="space-y-6">
+                  {/* AI Review Section - Only shown when in review step */}
+                  {renderAiReviewSection()}
+
+                  {/* Menu Items Section */}
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle>Menu Items for "{selectedMenu.name}"</CardTitle>
+                          <CardDescription>Manage your menu items and categories</CardDescription>
+                        </div>
+                        <div className="flex gap-2">
+                          {/* AI Upload Button */}
+                          <div className="relative">
+                            <Input
+                              type="file"
+                              accept="image/*"
+                              id="ai-menu-upload"
+                              onChange={handleFileChange}
+                              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                            />
+                            <Button
+                              variant="outline"
+                              onClick={() => document.getElementById("ai-menu-upload")?.click()}
+                              className="relative z-0"
+                            >
+                              <Brain className="mr-2 h-4 w-4" />
+                              AI Extract
+                            </Button>
+                          </div>
+
+                          {/* Add Item Button */}
+                          <Button onClick={() => handleOpenMenuItemDialog()}>
+                            <PlusIcon className="mr-2 h-4 w-4" />
+                            Add Item
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* AI Processing UI */}
+                      {aiOnboardingStep === "processing" && (
+                        <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                          <div className="flex flex-col items-center">
+                            <Brain className="h-8 w-8 text-blue-500 animate-pulse mb-2" />
+                            <p className="text-sm font-medium mb-2">Extracting menu items...</p>
+                            <Progress value={aiProcessingProgress} className="w-full" />
+                            <p className="text-xs text-gray-500 mt-1">{aiProcessingProgress}% complete</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* AI Upload UI */}
+                      {aiMenuFile && aiOnboardingStep === "upload" && (
+                        <div className="mt-4 p-4 bg-blue-50 rounded-lg flex items-center justify-between">
+                          <div className="flex items-center">
+                            <div className="mr-3 text-blue-500">
+                              <Upload className="h-5 w-5" />
+                            </div>
+                            <div>
+                              <p className="font-medium">{aiMenuFile.name}</p>
+                              <p className="text-xs text-gray-500">{(aiMenuFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setAiMenuFile(null)
+                                setAiOnboardingStep("idle")
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                            <Button size="sm" onClick={startAiProcessing}>
+                              Process with AI
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      {menuItems.length === 0 ? (
+                        <div className="text-center py-8">
+                          <p className="text-gray-500 mb-4">No menu items yet.</p>
+                          <Button onClick={() => handleOpenMenuItemDialog()}>
+                            <PlusIcon className="mr-2 h-4 w-4" />
+                            Add Your First Item
+                          </Button>
+                        </div>
+                      ) : (
+                        <MenuItemsList
+                          digitalMenuId={selectedMenu.id}
+                          items={menuItems}
+                          onItemUpdated={() => fetchMenuItems(selectedMenu.id)}
+                          onItemDeleted={() => fetchMenuItems(selectedMenu.id)}
+                        />
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Templates Section */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Menu Templates</CardTitle>
+                      <CardDescription>Choose a template for your menu</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <MenuTemplatesSection
+                        templates={templates}
+                        selectedMenu={selectedMenu}
+                        onApplyTemplate={handleApplyTemplate}
+                      />
+                    </CardContent>
+                  </Card>
+
+                  {/* Settings Section */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Menu Settings</CardTitle>
+                      <CardDescription>Configure your menu settings</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex gap-2">
+                        <Button onClick={() => handleEditMenu(selectedMenu)}>
+                          <Settings className="mr-2 h-4 w-4" />
+                          Edit Menu Details
+                        </Button>
+                        <Button variant="outline" onClick={() => handleGenerateQr(selectedMenu)}>
+                          <QrCode className="mr-2 h-4 w-4" />
+                          QR Code
+                        </Button>
+                        <Button variant="outline" onClick={handlePreviewMenu}>
+                          <Eye className="mr-2 h-4 w-4" />
+                          Preview
+                        </Button>
+                      </div>
+                      <Separator />
+                      <div>
+                        <Button variant="destructive" onClick={() => handleDeleteMenu(selectedMenu.id)}>
+                          Delete Menu
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              ) : (
+                <Card>
+                  <CardContent className="p-6 text-center">
+                    <p className="text-lg text-gray-600">Select a menu to start managing</p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </div>
         )}
 
+        {/* Dialogs */}
         <DigitalMenuFormDialog
           isOpen={isFormDialogOpen}
           onOpenChange={setIsFormDialogOpen}
@@ -361,17 +794,18 @@ export default function DigitalMenuHubPage() {
           />
         )}
 
-        {/* Dialogs */}
         <MenuItemFormDialog
           isOpen={isMenuItemDialogOpen}
           onOpenChange={setIsMenuItemDialogOpen}
           currentMenuItem={currentMenuItem}
           digitalMenuId={selectedMenu?.id}
           categories={globalCategories}
+          dishes={dishes}
           onSaveSuccess={() => {
             if (selectedMenu) {
               fetchMenuItems(selectedMenu.id)
               fetchDigitalMenuCategories(selectedMenu.id)
+              fetchDishes()
             }
           }}
           onCategoriesUpdated={handleCategoriesUpdated}
