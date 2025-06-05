@@ -2,114 +2,222 @@
 import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
 import { generateText } from "ai"
-import { openai } from "@ai-sdk/openai"
-import { uploadBase64ImageToBlob } from "@/lib/utils/blob-helpers"
+import { google } from "@ai-sdk/google"
 import { sql } from "@/lib/db"
 
-interface MenuItemDataForAi {
-  name: string;
-  description: string;
-  price: number;
-  category_name?: string; // Make category_name optional as AI might not always find it
-  // id, menu_category_id will be handled when actually creating the item
-  ai_extracted: boolean; // Flag for UI
+interface MenuItemData {
+  name: string
+  description: string
+  price: number
+  category: string
 }
 
-// Removed ParsedMenuData, CategoryData, MockResponse as they were for the old mock structure
-
-// Modified mockAiMenuUpload to align with frontend review flow
-// It now accepts a File object (though not used in mock) and returns items for review.
-export async function mockAiMenuUpload(file: File, digitalMenuId: number): Promise<MenuItemDataForAi[]> {
-  console.log(`[mockAiMenuUpload] Received file: ${file.name} for menu ID: ${digitalMenuId} (Menu ID not used in this mock response)`);
-
-  // Simulate AI processing delay
-  await new Promise(resolve => setTimeout(resolve, Math.random() * 2000 + 1500));
-
-  const extractedItems: MenuItemDataForAi[] = [
-    {
-      name: "Tacos al Pastor (AI Mock)",
-      description: "Deliciosos tacos de cerdo marinado con achiote, servidos con piña, cebolla y cilantro.",
-      price: Math.round((Math.random() * 10 + 10) * 100) / 100,
-      category_name: "Platos Fuertes",
-      ai_extracted: true,
-    },
-    {
-      name: "Guacamole Fresco (AI Mock)",
-      description: "Aguacate fresco machacado con cebolla, tomate, cilantro y un toque de limón.",
-      price: Math.round((Math.random() * 5 + 5) * 100) / 100,
-      category_name: "Entradas",
-      ai_extracted: true,
-    },
-    {
-      name: "Horchata Casera (AI Mock)",
-      description: "Bebida refrescante de arroz con canela y vainilla.",
-      price: Math.round((Math.random() * 3 + 2) * 100) / 100,
-      category_name: "Bebidas",
-      ai_extracted: true,
-    },
-    {
-      name: "Sopa de Tortilla (AI Mock)",
-      description: "Caldo de tomate con pollo deshebrado, tiras de tortilla frita, aguacate, queso y crema.",
-      price: Math.round((Math.random() * 8 + 7) * 100) / 100,
-      category_name: "Platos Fuertes",
-      ai_extracted: true,
-    },
-  ];
-
-  console.log(`[mockAiMenuUpload] Returning ${extractedItems.length} mock items for review.`);
-  return extractedItems;
+interface ParsedMenuData {
+  menuName: string
+  menuItems: MenuItemData[]
 }
 
-export async function processMenuWithAI(base64Image: string) { // : Promise<ParsedMenuData> - Type needs to be updated or function refactored
+interface CategoryData {
+  name: string
+  items: MenuItemData[]
+}
+
+interface MockResponse {
+  menuName: string
+  status: string
+  categories: CategoryData[]
+}
+
+export async function mockAiMenuUpload(base64Image: string, menuName: string) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required for AI menu upload.")
+    }
+
+    // Simulate AI processing time
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+
+    // Mock AI response for menu items and categories
+    const mockResponse: MockResponse = {
+      menuName: menuName,
+      status: "draft",
+      categories: [
+        {
+          name: "Appetizers",
+          items: [
+            { name: "Spring Rolls", description: "Crispy rolls with vegetables", price: 7.99, category: "Appetizers" },
+            {
+              name: "Garlic Bread",
+              description: "Toasted bread with garlic butter",
+              price: 5.5,
+              category: "Appetizers",
+            },
+          ],
+        },
+        {
+          name: "Main Courses",
+          items: [
+            {
+              name: "Chicken Curry",
+              description: "Spicy chicken curry with rice",
+              price: 14.99,
+              category: "Main Courses",
+            },
+            {
+              name: "Vegetable Lasagna",
+              description: "Layers of pasta, vegetables, and cheese",
+              price: 12.5,
+              category: "Main Courses",
+            },
+          ],
+        },
+      ],
+    }
+
+    // Create a new digital menu
+    const newMenuResult = await sql`
+      INSERT INTO digital_menus (name, status, restaurant_id)
+      VALUES (${mockResponse.menuName}, ${mockResponse.status}, ${restaurantId})
+      RETURNING id
+    `
+    const digitalMenuId = newMenuResult[0].id
+
+    // Insert categories and menu items
+    for (const categoryData of mockResponse.categories) {
+      // Find or create global category
+      let globalCategory = await sql`
+        SELECT id FROM categories WHERE name = ${categoryData.name} AND restaurant_id = ${restaurantId}
+      `
+      if (globalCategory.length === 0) {
+        const newGlobalCategory = await sql`
+          INSERT INTO categories (name, type, order_index, restaurant_id)
+          VALUES (${categoryData.name}, 'food', 0, ${restaurantId})
+          RETURNING id
+        `
+        globalCategory = newGlobalCategory
+      }
+      const categoryId = globalCategory[0].id
+
+      for (const itemData of categoryData.items) {
+        await sql`
+          INSERT INTO menu_items (name, description, price, digital_menu_id, menu_category_id, order_index)
+          VALUES (${itemData.name}, ${itemData.description}, ${itemData.price}, ${digitalMenuId}, ${categoryId}, 0)
+        `
+      }
+    }
+
+    revalidatePath("/dashboard/menu-studio/digital-menu")
+    return { success: true, message: "Menu uploaded and processed by AI successfully!", digitalMenuId }
+  } catch (error) {
+    console.error("Error in mockAiMenuUpload:", error)
+    throw new Error("Failed to process AI menu upload.")
+  }
+}
+
+export async function processMenuWithAI(base64Image: string): Promise<ParsedMenuData> {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
       throw new Error("Authentication required to process menu with AI.")
     }
 
-    // Upload the image to Vercel Blob storage
-    const imageUrl = await uploadBase64ImageToBlob(base64Image, `ai-menu-upload-${Date.now()}.png`)
+    // Convert base64 to data URL for Gemini
+    const imageDataUrl = `data:image/jpeg;base64,${base64Image}`
 
     const { text } = await generateText({
-      model: openai("gpt-4o"),
+      model: google("gemini-2.0-flash"),
       messages: [
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Extract menu items from this image. Provide the menu name, and for each item: name, description, price, and category. Respond in JSON format only, like this: { menuName: 'Menu Title', menuItems: [{ name: 'Dish Name', description: 'Dish Description', price: 12.34, category: 'Category Name' }] }.",
+              text: `Analyze this menu image and extract all menu items with their details. 
+
+For each dish/item you find, extract:
+- name: The exact dish name as written
+- description: The description if provided, or create a brief appetizing description if none exists
+- price: The price as a number (remove currency symbols, if no price is visible use 0)
+- category: The section/category it belongs to (like "Appetizers", "Main Courses", "Desserts", etc.)
+
+Please be thorough and extract ALL visible menu items. Pay attention to:
+- Different sections of the menu
+- Items that might be in smaller text
+- Combo meals or special offers
+- Beverages if present
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "menuName": "Name of the restaurant or menu",
+  "menuItems": [
+    {
+      "name": "Dish Name",
+      "description": "Brief description",
+      "price": 12.99,
+      "category": "Category Name"
+    }
+  ]
+}`,
             },
-            { type: "image", image: imageUrl },
+            {
+              type: "image",
+              image: imageDataUrl,
+            },
           ],
         },
       ],
     })
 
-    // const parsedData: ParsedMenuData = JSON.parse(text) // ParsedMenuData is removed, this needs to be adapted
-    // For now, let's assume text is the direct parsable data for extracted items or similar.
-    // This function needs to be aligned with how you want to use real AI results.
-    console.log("AI Response Text:", text);
-    // TODO: Adapt this to return data in a structure expected by the caller
-    // Potentially, it should return something similar to MenuItemDataForAi[]
-    const parsedResult = JSON.parse(text); // This is a guess, actual parsing depends on AI output format
+    let parsedData: ParsedMenuData
+    try {
+      // Clean the response text to ensure it's valid JSON
+      const cleanedText = text
+        .trim()
+        .replace(/```json\n?/g, "")
+        .replace(/```\n?/g, "")
+      parsedData = JSON.parse(cleanedText)
+    } catch (parseError) {
+      console.error("Failed to parse AI response:", text)
+      throw new Error("AI response was not valid JSON. Please try again.")
+    }
 
+    // Validate the parsed data
+    if (!parsedData.menuItems || !Array.isArray(parsedData.menuItems)) {
+      throw new Error("Invalid AI response format - no menu items found")
+    }
 
-    revalidatePath("/dashboard/upload-menu/review") // Revalidate the review page
-    return parsedResult; // Caller needs to handle this structure
+    // Ensure all required fields are present and valid
+    parsedData.menuItems = parsedData.menuItems
+      .filter((item) => {
+        return item.name && typeof item.name === "string" && item.name.trim().length > 0
+      })
+      .map((item) => ({
+        name: item.name.trim(),
+        description: item.description || `Delicious ${item.name.toLowerCase()}`,
+        price: typeof item.price === "number" ? item.price : Number.parseFloat(item.price) || 0,
+        category: item.category || "General",
+      }))
+
+    if (parsedData.menuItems.length === 0) {
+      throw new Error("No valid menu items could be extracted from the image")
+    }
+
+    revalidatePath("/dashboard/menu-studio/digital-menu")
+    return parsedData
   } catch (error) {
     console.error("Error processing menu with AI:", error)
-    throw new Error("Failed to process menu with AI.")
+    throw new Error(`Failed to process menu with AI: ${error.message}`)
   }
 }
 
 export async function generateMenuDescription(dishName: string) {
   try {
     const { text } = await generateText({
-      model: openai("gpt-4o"),
-      prompt: `Generate a short, enticing, and concise menu description for a dish named \"${dishName}\". Keep it under 20 words.`,
+      model: google("gemini-2.0-flash"),
+      prompt: `Generate a short, enticing, and concise menu description for a dish named "${dishName}". Keep it under 20 words and make it appetizing.`,
     })
-    return text
+    return text.trim()
   } catch (error) {
     console.error("Error generating menu description:", error)
     return "A delicious dish." // Fallback description

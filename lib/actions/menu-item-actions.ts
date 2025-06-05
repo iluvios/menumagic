@@ -1,335 +1,411 @@
 "use server"
 
-import { sql as neonSql } from "@/lib/db"
+// IMPORTS SECTION - START
+import { sql } from "@/lib/db"
 import { revalidatePath } from "next/cache"
-import { utapi } from "@/lib/utils/blob-helpers"
 import { getRestaurantIdFromSession } from "@/lib/auth"
-import { z } from "zod"
+// PROBLEMATIC IMPORT REMOVED: import { digital_menu_id } from "@/lib/constants"
+// IMPORTS SECTION - END
 
-// Define Zod schemas for validation
-const CreateMenuItemSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  description: z.string().optional().nullable(),
-  price: z.number().min(0, "Price must be non-negative"),
-  menu_category_id: z.number().optional().nullable(),
-  digital_menu_id: z.number(),
-  orderIndex: z.number().optional(),
-  isAvailable: z.boolean().optional(),
-})
-
-const UpdateMenuItemSchema = CreateMenuItemSchema.extend({
-  id: z.number(),
-})
-
+// GET MENU ITEMS FUNCTION - START
 export async function getMenuItems() {
-  const restaurantId = await getRestaurantIdFromSession()
-  if (!restaurantId) throw new Error("Authentication required.")
   try {
-    const items = await neonSql`
-      SELECT mi.*, c.name as category_name, dm.name as digital_menu_name
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("menu-item-actions.ts: No restaurant ID found for session in getMenuItems.")
+      return []
+    }
+    const result = await sql`
+      SELECT
+        mi.id,
+        mi.name,
+        mi.description,
+        mi.price,
+        mi.image_url,
+        mi.digital_menu_id,
+        mi.menu_category_id,
+        mc.name as category_name,
+        mi.reusable_menu_item_id
       FROM menu_items mi
-      LEFT JOIN categories c ON mi.menu_category_id = c.id
-      JOIN digital_menus dm ON mi.digital_menu_id = dm.id
-      WHERE dm.restaurant_id = ${restaurantId}
+      LEFT JOIN menu_categories mc ON mi.menu_category_id = mc.id
+      WHERE mi.restaurant_id = ${restaurantId}
       ORDER BY mi.name ASC
     `
-    return items
-  } catch (error: any) {
-    console.error("Error fetching all menu items:", error)
-    throw new Error("Failed to fetch menu items: " + error.message)
+    return result || []
+  } catch (error) {
+    console.error("menu-item-actions.ts: Error fetching menu items:", error)
+    throw new Error("Failed to fetch menu items.")
   }
 }
+// GET MENU ITEMS FUNCTION - END
 
+// GET MENU ITEM BY ID FUNCTION - START
 export async function getMenuItemById(id: number) {
-  const restaurantId = await getRestaurantIdFromSession()
-  if (!restaurantId) throw new Error("Authentication required.")
   try {
-    const result = await neonSql`
-      SELECT mi.*, c.name as category_name
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("menu-item-actions.ts: No restaurant ID for getMenuItemById.")
+      throw new Error("Authentication required.")
+    }
+    const result = await sql`
+      SELECT
+        mi.id,
+        mi.name,
+        mi.description,
+        mi.price,
+        mi.image_url,
+        mi.digital_menu_id,
+        mi.menu_category_id,
+        mc.name as category_name,
+        mi.reusable_menu_item_id
       FROM menu_items mi
-      LEFT JOIN categories c ON mi.menu_category_id = c.id
-      JOIN digital_menus dm ON mi.digital_menu_id = dm.id
-      WHERE mi.id = ${id} AND dm.restaurant_id = ${restaurantId}
+      LEFT JOIN menu_categories mc ON mi.menu_category_id = mc.id
+      WHERE mi.id = ${id} AND mi.restaurant_id = ${restaurantId}
     `
     return result[0] || null
-  } catch (error: any) {
-    console.error(`Error fetching menu item by ID ${id}:`, error)
-    throw new Error("Failed to fetch menu item by ID: " + error.message)
+  } catch (error) {
+    console.error(`menu-item-actions.ts: Error fetching menu item by ID ${id}:`, error)
+    throw new Error("Failed to fetch menu item by ID.")
   }
 }
+// GET MENU ITEM BY ID FUNCTION - END
 
-export async function createMenuItem(
-  data: z.infer<typeof CreateMenuItemSchema>,
-  imageFile?: File | null
-) {
-  const restaurantId = await getRestaurantIdFromSession()
-  if (!restaurantId) throw new Error("Authentication required.")
-
-  const validatedFields = CreateMenuItemSchema.safeParse(data)
-  if (!validatedFields.success) {
-    console.error("Validation Errors (createMenuItem):", validatedFields.error.flatten().fieldErrors)
-    throw new Error(`Invalid menu item data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}`)
-  }
-  let { name, description, price, menu_category_id, digital_menu_id, isAvailable, orderIndex } = validatedFields.data
-
-  const menuCheckResults = await neonSql`SELECT id FROM digital_menus WHERE id = ${digital_menu_id} AND restaurant_id = ${restaurantId}`
-  if (menuCheckResults.length === 0) throw new Error("Digital menu not found or does not belong to this restaurant.")
-
-  let imageUrl: string | undefined = undefined
-  if (imageFile && imageFile.size > 0) {
-    try {
-      const [res] = await utapi.uploadFiles([imageFile], { metadata: { digitalMenuId: digital_menu_id.toString() } })
-      if (res.error) throw new Error(res.error.message)
-      imageUrl = res.data?.url
-    } catch (uploadError: any) {
-      console.error("Error uploading image for menu item:", uploadError)
-      if (imageUrl) {
-        const fileKey = imageUrl.split("/").pop()
-        if (fileKey) await utapi.deleteFiles(fileKey).catch((e: any) => console.error("Cleanup failed for orphaned upload:", e))
-      }
-      throw new Error("Failed to upload image: " + uploadError.message)
-    }
-  }
-
+// CREATE MENU ITEM FUNCTION - START
+export async function createMenuItem(data: {
+  name: string
+  description: string
+  price: number
+  image_url?: string
+  digital_menu_id: number
+  menu_category_id: number
+  reusable_menu_item_id?: number
+}) {
   try {
-    if (orderIndex === undefined || orderIndex === null) {
-      const result = await neonSql`SELECT MAX(order_index) as max_order FROM menu_items WHERE digital_menu_id = ${digital_menu_id} AND menu_category_id = ${menu_category_id}`
-      const maxOrder = result[0]?.max_order
-      orderIndex = (typeof maxOrder === 'number' ? maxOrder : -1) + 1
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("menu-item-actions.ts: No restaurant ID for createMenuItem.")
+      throw new Error("Authentication required to create menu item.")
     }
 
-    const insertResult = await neonSql`
-      INSERT INTO menu_items (name, description, price, menu_category_id, digital_menu_id, image_url, order_index, is_available)
-      VALUES (${name}, ${description}, ${price}, ${menu_category_id}, ${digital_menu_id}, ${imageUrl}, ${orderIndex}, ${isAvailable ?? true})
-      RETURNING *
+    const result = await sql`
+      INSERT INTO menu_items (name, description, price, image_url, digital_menu_id, menu_category_id, reusable_menu_item_id, restaurant_id)
+      VALUES (${data.name}, ${data.description}, ${data.price}, ${data.image_url || null}, ${data.digital_menu_id}, ${data.menu_category_id}, ${data.reusable_menu_item_id || null}, ${restaurantId})
+      RETURNING id, name, description, price, image_url, digital_menu_id, menu_category_id, reusable_menu_item_id
     `
-    
     revalidatePath(`/dashboard/menu-studio/digital-menu`)
-    revalidatePath(`/dashboard/menus/dishes/${digital_menu_id}`)
-    return insertResult[0]
-  } catch (dbError: any) {
-    console.error("Database Error (createMenuItem):", dbError)
-    if (imageUrl) {
-      const fileKey = imageUrl.split("/").pop()
-      if (fileKey) await utapi.deleteFiles(fileKey).catch((e: any) => console.error("Failed to delete orphaned image after DB error:", e))
-    }
-    throw new Error("Database Error: Failed to Create Menu Item. " + dbError.message)
+    revalidatePath(`/menu/${data.digital_menu_id}`)
+    return result[0]
+  } catch (error) {
+    console.error("menu-item-actions.ts: Error creating menu item:", error)
+    throw new Error("Failed to create menu item.")
   }
 }
+// CREATE MENU ITEM FUNCTION - END
 
+// UPDATE MENU ITEM FUNCTION - START
 export async function updateMenuItem(
   id: number,
-  data: Partial<Omit<z.infer<typeof CreateMenuItemSchema>, 'digital_menu_id' | 'orderIndex'> & { digital_menu_id?: number, orderIndex?:number }>,
-  imageFileOrNull?: File | null
+  data: {
+    name?: string
+    description?: string
+    price?: number
+    image_url?: string
+    digital_menu_id?: number
+    menu_category_id?: number
+    reusable_menu_item_id?: number
+  },
 ) {
-  const restaurantId = await getRestaurantIdFromSession()
-  if (!restaurantId) throw new Error("Authentication required.")
-
-  const existingItems = await neonSql`
-    SELECT mi.image_url, mi.digital_menu_id 
-    FROM menu_items mi
-    JOIN digital_menus dm ON mi.digital_menu_id = dm.id
-    WHERE mi.id = ${id} AND dm.restaurant_id = ${restaurantId}
-  `
-  if (existingItems.length === 0) throw new Error("Menu item not found or not owned by this restaurant.")
-  const existingItem = existingItems[0]
-
-  const validatedFields = UpdateMenuItemSchema.safeParse({ ...data, id })
-  if (!validatedFields.success) {
-    console.error("Validation Errors (updateMenuItem):", validatedFields.error.flatten().fieldErrors)
-    throw new Error(`Invalid menu item data for update: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}`)
-  }
-  
-  const { id: validatedId, ...dataToUpdate } = validatedFields.data
-  let newImageUrl: string | undefined | null = undefined
-
-  if (imageFileOrNull === null) {
-    newImageUrl = null
-    if (existingItem.image_url) {
-      const fileKey = existingItem.image_url.split("/").pop()
-      if (fileKey) await utapi.deleteFiles(fileKey).catch((e: any) => console.error("Failed to delete old image:", e))
-    }
-  } else if (imageFileOrNull && imageFileOrNull.size > 0) {
-    if (existingItem.image_url) {
-      const fileKey = existingItem.image_url.split("/").pop()
-      if (fileKey) await utapi.deleteFiles(fileKey).catch((e: any) => console.error("Failed to delete old image before new upload:", e))
-    }
-    try {
-      const [res] = await utapi.uploadFiles([imageFileOrNull], { metadata: { digitalMenuId: (dataToUpdate.digital_menu_id ?? existingItem.digital_menu_id).toString() } })
-      if (res.error) throw new Error(res.error.message)
-      newImageUrl = res.data?.url
-    } catch (uploadError: any) {
-      console.error("Error uploading new image for menu item:", uploadError)
-      throw new Error("Failed to upload new image: " + uploadError.message)
-    }
-  }
-
-  const { name, description, price, menu_category_id, digital_menu_id, isAvailable, orderIndex } = dataToUpdate
-  
-  // Build SET clause dynamically for fields that are actually provided
-  let setClauses: string[] = [];
-  let queryParams: any[] = [];
-  // let paramIndex = 1; // paramIndex will be derived from queryParams.length + 1
-
-  if (name !== undefined) { setClauses.push(`name = $${queryParams.length + 1}`); queryParams.push(name); }
-  if (description !== undefined) { setClauses.push(`description = $${queryParams.length + 1}`); queryParams.push(description); }
-  if (price !== undefined) { setClauses.push(`price = $${queryParams.length + 1}`); queryParams.push(price); }
-  if (menu_category_id !== undefined) { setClauses.push(`menu_category_id = $${queryParams.length + 1}`); queryParams.push(menu_category_id); }
-  if (digital_menu_id !== undefined) { setClauses.push(`digital_menu_id = $${queryParams.length + 1}`); queryParams.push(digital_menu_id); }
-  if (isAvailable !== undefined) { setClauses.push(`is_available = $${queryParams.length + 1}`); queryParams.push(isAvailable); }
-  if (orderIndex !== undefined) { setClauses.push(`order_index = $${queryParams.length + 1}`); queryParams.push(orderIndex); }
-  
-  if (newImageUrl !== undefined) { // Handles new URL or explicit null for image
-    setClauses.push(`image_url = $${queryParams.length + 1}`); 
-    queryParams.push(newImageUrl);
-  } else if (newImageUrl === null && data.hasOwnProperty('image_url')) { // Explicitly setting to null (image_url was in data as null)
-     setClauses.push(`image_url = $${queryParams.length + 1}`); 
-     queryParams.push(null);
-  }
-  
-  if (setClauses.length === 0) {
-    if (newImageUrl === undefined) { // No actual data fields to update, and no image change
-        // Fetch and return the item to be consistent, or throw an error if no update is not desired.
-        console.warn("updateMenuItem called with no data to update for item ID:", id);
-        const currentItem = await getMenuItemById(id); // Assumes getMenuItemById is safe if called here
-        return currentItem; 
-    }
-    // If only image changed, setClauses might be empty but newImageUrl is defined/null, handled by above image logic pushing to setClauses.
-  }
-
-  setClauses.push(`updated_at = CURRENT_TIMESTAMP`); // Always update timestamp
-  
-  // The ID for the WHERE clause must be the last parameter
-  queryParams.push(id);
-  const idParamIndex = queryParams.length; // Index for id in the WHERE clause, e.g., $5 if 4 fields + id
-
   try {
-    const updateQueryString = `UPDATE menu_items SET ${setClauses.join(", ")} WHERE id = $${idParamIndex} RETURNING *`;
-    
-    // Use the { text, values } pattern for sql function for parameterized queries
-    const updatedResult = await neonSql({ text: updateQueryString, values: queryParams });
-    
-    revalidatePath(`/dashboard/menu-studio/digital-menu`);
-    if (updatedResult[0]?.digital_menu_id) revalidatePath(`/dashboard/menus/dishes/${updatedResult[0].digital_menu_id}`);
-    return updatedResult[0]; // Neon returns an array, get the first element
-  } catch (dbError: any) {
-    console.error("Database Error (updateMenuItem):", dbError)
-    throw new Error("Database Error: Failed to Update Menu Item. " + dbError.message)
-  }
-}
-
-export async function deleteMenuItem(id: number) {
-  const restaurantId = await getRestaurantIdFromSession()
-  if (!restaurantId) throw new Error("Authentication required.")
-
-  const itemsToDelete = await neonSql`
-    SELECT mi.image_url, mi.digital_menu_id
-    FROM menu_items mi
-    JOIN digital_menus dm ON mi.digital_menu_id = dm.id
-    WHERE mi.id = ${id} AND dm.restaurant_id = ${restaurantId}
-  `
-
-  if (itemsToDelete.length === 0) {
-    throw new Error("Menu item not found or does not belong to this restaurant.")
-  }
-  const itemToDelete = itemsToDelete[0]
-
-  try {
-    await neonSql`DELETE FROM menu_items WHERE id = ${id}`
-    if (itemToDelete.image_url) {
-      const fileKey = itemToDelete.image_url.split("/").pop()
-      if (fileKey) {
-        await utapi.deleteFiles(fileKey).catch((e: any) => console.error("Failed to delete image on item delete:", e))
-      }
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("menu-item-actions.ts: No restaurant ID for updateMenuItem.")
+      throw new Error("Authentication required to update menu item.")
     }
-    revalidatePath(`/dashboard/menu-studio/digital-menu`)
-    if (itemToDelete.digital_menu_id) revalidatePath(`/dashboard/menus/dishes/${itemToDelete.digital_menu_id}`)
-    return { success: true, message: "Menu item deleted successfully." }
-  } catch (dbError: any) {
-    console.error("Database Error (deleteMenuItem):", dbError)
-    throw new Error("Database Error: Failed to Delete Menu Item. " + dbError.message)
-  }
-}
 
-export async function getMenuItemsByMenuId(digital_menu_id: number) {
-  const restaurantId = await getRestaurantIdFromSession()
-  if (!restaurantId) throw new Error("Authentication required.")
-  try {
-    const menuItems = await neonSql`
-      SELECT mi.*, c.name as category_name
-      FROM menu_items mi
-      LEFT JOIN categories c ON mi.menu_category_id = c.id
-      JOIN digital_menus dm ON mi.digital_menu_id = dm.id
-      WHERE mi.digital_menu_id = ${digital_menu_id} AND dm.restaurant_id = ${restaurantId}
-      ORDER BY mi.order_index ASC
+    const result = await sql`
+      UPDATE menu_items
+      SET
+        name = COALESCE(${data.name}, name),
+        description = COALESCE(${data.description}, description),
+        price = COALESCE(${data.price}, price),
+        image_url = COALESCE(${data.image_url}, image_url),
+        digital_menu_id = COALESCE(${data.digital_menu_id}, digital_menu_id),
+        menu_category_id = COALESCE(${data.menu_category_id}, menu_category_id),
+        reusable_menu_item_id = COALESCE(${data.reusable_menu_item_id}, reusable_menu_item_id),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ${id} AND restaurant_id = ${restaurantId}
+      RETURNING id, name, description, price, image_url, digital_menu_id, menu_category_id, reusable_menu_item_id
     `
-    return menuItems
-  } catch (error: any) {
-    console.error("Error fetching menu items by menu ID:", error)
-    return []
+    revalidatePath(`/dashboard/menu-studio/digital-menu`)
+    revalidatePath(`/menu/${data.digital_menu_id}`)
+    return result[0]
+  } catch (error) {
+    console.error("menu-item-actions.ts: Error updating menu item:", error)
+    throw new Error("Failed to update menu item.")
   }
 }
+// UPDATE MENU ITEM FUNCTION - END
 
-export async function updateMenuItemOrder(menuId: number, categoryId: number | null, orderedIds: number[]) {
-  const restaurantId = await getRestaurantIdFromSession()
-  if (!restaurantId) throw new Error("Authentication required.")
-
-  const menuCheck = await neonSql`SELECT id FROM digital_menus WHERE id = ${menuId} AND restaurant_id = ${restaurantId}`
-  if (menuCheck.length === 0) {
-    throw new Error("Menu not found or does not belong to this restaurant.")
-  }
-
+// DELETE MENU ITEM FUNCTION - START
+export async function deleteMenuItem(id: number) {
   try {
-    for (let i = 0; i < orderedIds.length; i++) {
-      const id = orderedIds[i]
-      const orderIndex = i
-      await neonSql`
-        UPDATE menu_items 
-        SET order_index = ${orderIndex}, menu_category_id = ${categoryId === 0 ? null : categoryId}
-        WHERE id = ${id}
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("menu-item-actions.ts: No restaurant ID for deleteMenuItem.")
+      throw new Error("Authentication required to delete menu item.")
+    }
+
+    // Get digital_menu_id before deleting for revalidation
+    const menuItem =
+      await sql`SELECT digital_menu_id FROM menu_items WHERE id = ${id} AND restaurant_id = ${restaurantId}`
+    const digitalMenuId = menuItem[0]?.digital_menu_id
+
+    await sql`
+      DELETE FROM menu_items
+      WHERE id = ${id} AND restaurant_id = ${restaurantId}
+    `
+    if (digitalMenuId) {
+      revalidatePath(`/dashboard/menu-studio/digital-menu`)
+      revalidatePath(`/menu/${digitalMenuId}`)
+    }
+    return { success: true }
+  } catch (error) {
+    console.error("menu-item-actions.ts: Error deleting menu item:", error)
+    throw new Error("Failed to delete menu item.")
+  }
+}
+// DELETE MENU ITEM FUNCTION - END
+
+// GET MENU ITEMS BY MENU ID FUNCTION - START
+export async function getMenuItemsByMenuId(digitalMenuId: number) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("menu-item-actions.ts: No restaurant ID for getMenuItemsByMenuId.")
+      return []
+    }
+    const result = await sql`
+      SELECT
+        mi.id,
+        mi.name,
+        mi.description,
+        mi.price,
+        mi.image_url,
+        mi.digital_menu_id,
+        mi.menu_category_id,
+        mc.name as category_name,
+        mi.reusable_menu_item_id
+      FROM menu_items mi
+      LEFT JOIN menu_categories mc ON mi.menu_category_id = mc.id
+      WHERE mi.digital_menu_id = ${digitalMenuId} AND mi.restaurant_id = ${restaurantId}
+      ORDER BY mc.order_index ASC, mi.name ASC
+    `
+    return result || []
+  } catch (error) {
+    console.error(`menu-item-actions.ts: Error fetching menu items for menu ID ${digitalMenuId}:`, error)
+    throw new Error("Failed to fetch menu items by menu ID.")
+  }
+}
+// GET MENU ITEMS BY MENU ID FUNCTION - END
+
+// GET MENU ITEM DETAILS FUNCTION - START
+export async function getMenuItemDetails(menuItemId: number) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("menu-item-actions.ts: No restaurant ID for getMenuItemDetails.")
+      throw new Error("Authentication required.")
+    }
+    const result = await sql`
+      SELECT
+        mi.id,
+        mi.name,
+        mi.description,
+        mi.price,
+        mi.image_url,
+        mi.digital_menu_id,
+        mi.menu_category_id,
+        mc.name as category_name,
+        mi.reusable_menu_item_id
+      FROM menu_items mi
+      LEFT JOIN menu_categories mc ON mi.menu_category_id = mc.id
+      WHERE mi.id = ${menuItemId} AND mi.restaurant_id = ${restaurantId}
+    `
+    return result[0] || null
+  } catch (error) {
+    console.error(`menu-item-actions.ts: Error fetching menu item details for ID ${menuItemId}:`, error)
+    throw new Error("Failed to fetch menu item details.")
+  }
+}
+// GET MENU ITEM DETAILS FUNCTION - END
+
+// GET MENU ITEM INGREDIENTS FUNCTION - START
+export async function getMenuItemIngredients(menuItemId: number) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("menu-item-actions.ts: No restaurant ID for getMenuItemIngredients.")
+      return []
+    }
+    const result = await sql`
+      SELECT
+        mii.ingredient_id,
+        i.name as ingredient_name,
+        mii.quantity,
+        mii.unit
+      FROM menu_item_ingredients mii
+      JOIN ingredients i ON mii.ingredient_id = i.id
+      WHERE mii.menu_item_id = ${menuItemId} AND i.restaurant_id = ${restaurantId}
+    `
+    return result || []
+  } catch (error) {
+    console.error(`menu-item-actions.ts: Error fetching ingredients for menu item ${menuItemId}:`, error)
+    throw new Error("Failed to fetch menu item ingredients.")
+  }
+}
+// GET MENU ITEM INGREDIENTS FUNCTION - END
+
+// UPDATE MENU ITEM INGREDIENTS FUNCTION - START
+export async function updateMenuItemIngredients(
+  menuItemId: number,
+  ingredients: { ingredient_id: number; quantity: number; unit: string }[],
+) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("menu-item-actions.ts: No restaurant ID for updateMenuItemIngredients.")
+      throw new Error("Authentication required.")
+    }
+
+    // Check if menu item belongs to the restaurant
+    const menuItemCheck =
+      await sql`SELECT id FROM menu_items WHERE id = ${menuItemId} AND restaurant_id = ${restaurantId}`
+    if (menuItemCheck.length === 0) {
+      throw new Error("Menu item not found or does not belong to this restaurant.")
+    }
+
+    await sql`DELETE FROM menu_item_ingredients WHERE menu_item_id = ${menuItemId}`
+
+    if (ingredients.length > 0) {
+      const values = ingredients.map((ing) => sql`(${menuItemId}, ${ing.ingredient_id}, ${ing.quantity}, ${ing.unit})`)
+      await sql`
+        INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, quantity, unit)
+        VALUES ${sql.join(values, ",")}
       `
     }
-    
-    revalidatePath(`/dashboard/menus/dishes/${menuId}`)
     revalidatePath(`/dashboard/menu-studio/digital-menu`)
-    return { success: true, message: "Menu item order updated successfully." }
-  } catch (error: any) {
-    console.error("Error updating menu item order:", error)
-    return { success: false, error: "Failed to update menu item order: " + error.message }
+    return { success: true }
+  } catch (error) {
+    console.error(`menu-item-actions.ts: Error updating ingredients for menu item ${menuItemId}:`, error)
+    throw new Error("Failed to update menu item ingredients.")
   }
 }
+// UPDATE MENU ITEM INGREDIENTS FUNCTION - END
 
-export async function getMenuItemDetails(id: number) {
-  console.warn("getMenuItemDetails is a stub. For now, aliasing to getMenuItemById.")
-  return getMenuItemById(id)
+// GET MENU ITEM CATEGORIES FUNCTION - START
+export async function getMenuItemCategories(menuItemId: number) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("menu-item-actions.ts: No restaurant ID for getMenuItemCategories.")
+      return []
+    }
+    const result = await sql`
+      SELECT
+        mc.id,
+        mc.name,
+        mc.type,
+        mc.order_index
+      FROM menu_categories mc
+      JOIN menu_items mi ON mc.id = mi.menu_category_id
+      WHERE mi.id = ${menuItemId} AND mc.restaurant_id = ${restaurantId}
+    `
+    return result || []
+  } catch (error) {
+    console.error(`menu-item-actions.ts: Error fetching categories for menu item ${menuItemId}:`, error)
+    throw new Error("Failed to fetch menu item categories.")
+  }
 }
+// GET MENU ITEM CATEGORIES FUNCTION - END
 
-export async function getMenuItemIngredients(menuItemId: number) {
-  console.warn("getMenuItemIngredients is a stub and not fully implemented.")
-  return []
-}
-
-export async function updateMenuItemIngredients(menuItemId: number, ingredientsData: any) {
-  console.warn("updateMenuItemIngredients is a stub and not fully implemented.")
-  revalidatePath(`/dashboard/menus/dishes/${menuItemId}`)
-  return { success: true, message: "(Stub) Ingredients updated." }
-}
-
-export async function getMenuItemCategories() {
-  console.warn("getMenuItemCategories is a stub. Consider using getCategoriesByType from category-actions.")
-  const restaurantId = await getRestaurantIdFromSession()
-  if (!restaurantId) throw new Error("Authentication required.")
-  return []
-}
-
+// GET MENU ITEM REUSABLE ITEMS FUNCTION - START
 export async function getMenuItemReusableItems(menuItemId: number) {
-  console.warn("getMenuItemReusableItems is a stub and not fully implemented.")
-  return []
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("menu-item-actions.ts: No restaurant ID for getMenuItemReusableItems.")
+      return []
+    }
+    const result = await sql`
+      SELECT
+        rmii.reusable_menu_item_id,
+        rmi.name as reusable_item_name,
+        rmii.quantity
+      FROM reusable_menu_item_ingredients rmii
+      JOIN reusable_menu_items rmi ON rmii.reusable_menu_item_id = rmi.id
+      WHERE rmii.menu_item_id = ${menuItemId} AND rmi.restaurant_id = ${restaurantId}
+    `
+    return result || []
+  } catch (error) {
+    console.error(`menu-item-actions.ts: Error fetching reusable items for menu item ${menuItemId}:`, error)
+    throw new Error("Failed to fetch menu item reusable items.")
+  }
 }
+// GET MENU ITEM REUSABLE ITEMS FUNCTION - END
 
-export async function updateMenuItemReusableItems(menuItemId: number, reusableItemsData: any) {
-  console.warn("updateMenuItemReusableItems is a stub and not fully implemented.")
-  revalidatePath(`/dashboard/menus/dishes/${menuItemId}`)
-  return { success: true, message: "(Stub) Reusable items updated." }
+// UPDATE MENU ITEM REUSABLE ITEMS FUNCTION - START
+export async function updateMenuItemReusableItems(
+  menuItemId: number,
+  reusableItems: { reusable_menu_item_id: number; quantity: number }[],
+) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      console.error("menu-item-actions.ts: No restaurant ID for updateMenuItemReusableItems.")
+      throw new Error("Authentication required.")
+    }
+
+    // Check if menu item belongs to the restaurant
+    const menuItemCheck =
+      await sql`SELECT id FROM menu_items WHERE id = ${menuItemId} AND restaurant_id = ${restaurantId}`
+    if (menuItemCheck.length === 0) {
+      throw new Error("Menu item not found or does not belong to this restaurant.")
+    }
+
+    await sql`DELETE FROM reusable_menu_item_ingredients WHERE menu_item_id = ${menuItemId}`
+
+    if (reusableItems.length > 0) {
+      const values = reusableItems.map((item) => sql`(${menuItemId}, ${item.reusable_menu_item_id}, ${item.quantity})`)
+      await sql`
+        INSERT INTO reusable_menu_item_ingredients (menu_item_id, reusable_menu_item_id, quantity)
+        VALUES ${sql.join(values, ",")}
+      `
+    }
+    revalidatePath(`/dashboard/menu-studio/digital-menu`)
+    return { success: true }
+  } catch (error) {
+    console.error(`menu-item-actions.ts: Error updating reusable items for menu item ${menuItemId}:`, error)
+    throw new Error("Failed to update menu item reusable items.")
+  }
 }
+// UPDATE MENU ITEM REUSABLE ITEMS FUNCTION - END
 
+// UPDATE MENU ITEM ORDER FUNCTION - START
+export async function updateMenuItemOrder(updates: { id: number; order_index: number }[]) {
+  try {
+    // Process each update individually using SQL
+    for (const update of updates) {
+      await sql`
+        UPDATE menu_items 
+        SET order_index = ${update.order_index}
+        WHERE id = ${update.id}
+      `
+    }
+    revalidatePath("/dashboard/menu-studio/digital-menu")
+    return { success: true }
+  } catch (error) {
+    console.error("Failed to update menu item order:", error)
+    throw new Error("Failed to update menu item order.")
+  }
+}
+// UPDATE MENU ITEM ORDER FUNCTION - END

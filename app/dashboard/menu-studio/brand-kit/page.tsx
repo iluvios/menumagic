@@ -9,44 +9,51 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Upload, ImageIcon, Trash2, Save } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { getBrandKit, updateBrandKit, uploadBrandAsset, deleteBrandAsset } from "@/lib/actions/brand-kit-actions"
+import {
+  getBrandKit,
+  updateBrandKit,
+  createBrandAssetRecord, // New import
+  deleteBrandAssetRecord, // New import
+  type BrandAsset, // Import the type
+} from "@/lib/actions/brand-kit-actions"
 
 interface BrandKitData {
   id?: number
-  logo_url?: string
+  logo_url?: string | null // Allow null
   primary_color_hex?: string
   secondary_colors_json_array?: string[]
   font_family_main?: string
   font_family_secondary?: string
 }
 
-interface BrandAsset {
-  id: number
-  asset_name: string
-  asset_url: string
-  asset_type: string
-}
-
 export default function BrandKitPage() {
   const { toast } = useToast()
-  const [brandKit, setBrandKit] = useState<BrandKitData>({})
+  const [brandKit, setBrandKit] = useState<BrandKitData | null>(null) // Initialize as null
   const [brandAssets, setBrandAssets] = useState<BrandAsset[]>([])
   const [newLogoFile, setNewLogoFile] = useState<File | null>(null)
+  const [newAssetFile, setNewAssetFile] = useState<File | null>(null) // For general assets
 
   useEffect(() => {
     fetchBrandKitData()
   }, [])
 
   const fetchBrandKitData = async () => {
-    const data = await getBrandKit()
-    if (data) {
-      setBrandKit(data.brandKit)
-      setBrandAssets(data.assets)
-    }
+    const { brandKit: fetchedBrandKit, assets: fetchedAssets } = await getBrandKit()
+    setBrandKit(fetchedBrandKit || null)
+    setBrandAssets(fetchedAssets || [])
   }
 
   const handleBrandKitUpdate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!brandKit?.id) {
+      toast({
+        title: "Error",
+        description: "No brand kit found to update. Please create one first.",
+        variant: "destructive",
+      })
+      return
+    }
+
     const formData = new FormData(event.currentTarget)
     const primary_color_hex = formData.get("primary_color_hex") as string
     const font_family_main = formData.get("font_family_main") as string
@@ -58,32 +65,45 @@ export default function BrandKitPage() {
       font_family_secondary,
     }
 
-    const result = await updateBrandKit(brandKit.id, dataToUpdate)
+    // Handle logo file separately if it changed
+    let logoFileToPass: File | null | undefined = undefined // undefined means no change, null means remove
+    if (newLogoFile) {
+      logoFileToPass = newLogoFile
+    } else if (newLogoFile === null && brandKit.logo_url !== null) {
+      // User explicitly cleared the logo input, and there was an existing logo
+      logoFileToPass = null
+    }
+
+    const result = await updateBrandKit(brandKit.id, dataToUpdate, logoFileToPass) // Pass newLogoFile
     if (result.success) {
       toast({ title: "Kit de Marca Actualizado", description: "Los ajustes de tu marca han sido guardados." })
+      setNewLogoFile(null) // Clear the file input state after successful upload
       fetchBrandKitData()
     } else {
       toast({ title: "Error", description: result.error, variant: "destructive" })
     }
   }
 
-  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoFileInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    setNewLogoFile(file || null)
+    if (file) {
+      // For immediate preview
+      setBrandKit((prev) => ({ ...prev!, logo_url: URL.createObjectURL(file) }))
+    } else {
+      // If file input is cleared, clear preview
+      setBrandKit((prev) => ({ ...prev!, logo_url: null }))
+    }
+  }
+
+  const handleGeneralAssetUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
-      setNewLogoFile(file)
-      // In a real app, you'd upload this to a storage service (e.g., Vercel Blob)
-      // For now, we'll simulate and use a placeholder or a direct URL if available.
-      const simulatedUrl = URL.createObjectURL(file) // For immediate preview
-      setBrandKit((prev) => ({ ...prev, logo_url: simulatedUrl }))
-
-      // Simulate actual upload and update DB
-      const result = await uploadBrandAsset(brandKit.id, {
-        asset_name: file.name,
-        asset_type: "image",
-        asset_url: `/placeholder.svg?height=100&width=100&query=logo`, // Replace with actual blob URL
-      })
+      setNewAssetFile(file)
+      const result = await createBrandAssetRecord(file, "image") // Assuming 'image' type for now
       if (result.success) {
-        toast({ title: "Logo Subido", description: "Tu nuevo logo ha sido cargado exitosamente." })
+        toast({ title: "Activo Subido", description: "Tu nuevo activo ha sido cargado exitosamente." })
+        setNewAssetFile(null) // Clear the file input state
         fetchBrandKitData()
       } else {
         toast({ title: "Error", description: result.error, variant: "destructive" })
@@ -93,7 +113,7 @@ export default function BrandKitPage() {
 
   const handleDeleteAsset = async (assetId: number) => {
     if (confirm("¿Estás seguro de que quieres eliminar este activo?")) {
-      const result = await deleteBrandAsset(assetId)
+      const result = await deleteBrandAssetRecord(assetId) // Use new action
       if (result.success) {
         toast({ title: "Activo Eliminado", description: "El activo de marca ha sido eliminado." })
         fetchBrandKitData()
@@ -107,7 +127,8 @@ export default function BrandKitPage() {
     <div className="space-y-8">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-neutral-900">Brand Kit</h1>
-        <Button className="bg-warm-500 hover:bg-warm-600 text-white shadow-md">
+        {/* This button should trigger the form submission for the main brand kit settings */}
+        <Button type="submit" form="brand-kit-form" className="bg-warm-500 hover:bg-warm-600 text-white shadow-md">
           <Save className="mr-2 h-4 w-4" />
           Guardar Cambios
         </Button>
@@ -128,9 +149,9 @@ export default function BrandKitPage() {
                 Logo del Restaurante
               </Label>
               <div className="mt-2 border-2 border-dashed border-neutral-300 rounded-lg p-6 text-center bg-neutral-50">
-                {brandKit.logo_url ? (
+                {newLogoFile || brandKit?.logo_url ? ( // Check newLogoFile first for immediate preview
                   <img
-                    src={brandKit.logo_url || "/placeholder.svg"}
+                    src={newLogoFile ? URL.createObjectURL(newLogoFile) : brandKit?.logo_url || "/placeholder.svg"}
                     alt="Restaurant Logo"
                     className="mx-auto h-24 w-auto object-contain mb-3 rounded"
                   />
@@ -138,7 +159,13 @@ export default function BrandKitPage() {
                   <ImageIcon className="mx-auto h-12 w-12 text-neutral-400 mb-3" />
                 )}
                 <p className="text-sm text-neutral-600 mb-3">Sube el logo de tu restaurante (PNG, JPG, SVG)</p>
-                <Input id="logoUpload" type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                <Input
+                  id="logoUpload"
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleLogoFileInputChange}
+                />
                 <Label
                   htmlFor="logoUpload"
                   className="inline-flex items-center px-4 py-2 border border-neutral-300 rounded-md shadow-sm text-sm font-medium text-neutral-700 bg-white hover:bg-neutral-50 cursor-pointer"
@@ -146,10 +173,24 @@ export default function BrandKitPage() {
                   <Upload className="mr-2 h-4 w-4" />
                   Subir Logo
                 </Label>
+                {brandKit?.logo_url && ( // Option to remove existing logo
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-2 text-red-500 hover:text-red-600"
+                    onClick={() => {
+                      setNewLogoFile(null) // Indicate no new file
+                      setBrandKit((prev) => ({ ...prev!, logo_url: null })) // Clear preview
+                      // The actual DB update happens on form submit
+                    }}
+                  >
+                    <Trash2 className="mr-1 h-4 w-4" /> Quitar Logo
+                  </Button>
+                )}
               </div>
             </div>
 
-            <form onSubmit={handleBrandKitUpdate} className="space-y-4">
+            <form id="brand-kit-form" onSubmit={handleBrandKitUpdate} className="space-y-4">
               <div>
                 <Label htmlFor="primaryColor" className="block text-neutral-700 font-medium mb-2">
                   Color Principal
@@ -159,12 +200,12 @@ export default function BrandKitPage() {
                     id="primaryColor"
                     name="primary_color_hex"
                     type="color"
-                    defaultValue={brandKit.primary_color_hex || "#F59E0B"}
+                    defaultValue={brandKit?.primary_color_hex || "#F59E0B"}
                     className="w-12 h-10 p-1 border border-neutral-300 rounded-md"
                   />
                   <Input
                     type="text"
-                    defaultValue={brandKit.primary_color_hex || "#F59E0B"}
+                    defaultValue={brandKit?.primary_color_hex || "#F59E0B"}
                     className="flex-1 border border-neutral-300 rounded-md px-3 py-2"
                   />
                 </div>
@@ -177,7 +218,7 @@ export default function BrandKitPage() {
                 <Input
                   id="fontMain"
                   name="font_family_main"
-                  defaultValue={brandKit.font_family_main || "Inter"}
+                  defaultValue={brandKit?.font_family_main || "Inter"}
                   placeholder="Ej: Inter, Roboto"
                   className="border border-neutral-300 rounded-md px-3 py-2"
                 />
@@ -189,15 +230,12 @@ export default function BrandKitPage() {
                 <Input
                   id="fontSecondary"
                   name="font_family_secondary"
-                  defaultValue={brandKit.font_family_secondary || "Lora"}
+                  defaultValue={brandKit?.font_family_secondary || "Lora"}
                   placeholder="Ej: Lora, Playfair Display"
                   className="border border-neutral-300 rounded-md px-3 py-2"
                 />
               </div>
-              <Button type="submit" className="w-full bg-warm-500 hover:bg-warm-600 text-white shadow-md">
-                <Save className="mr-2 h-4 w-4" />
-                Guardar Colores y Fuentes
-              </Button>
+              {/* Removed the individual submit button here as it's now at the top */}
             </form>
           </CardContent>
         </Card>
@@ -210,7 +248,13 @@ export default function BrandKitPage() {
             <div className="border-2 border-dashed border-neutral-300 rounded-lg p-6 text-center bg-neutral-50">
               <ImageIcon className="mx-auto h-12 w-12 text-neutral-400 mb-3" />
               <p className="text-sm text-neutral-600 mb-3">Sube imágenes para usar en tu sitio web y menús.</p>
-              <Input id="assetUpload" type="file" accept="image/*" className="hidden" />
+              <Input
+                id="assetUpload"
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleGeneralAssetUpload}
+              />
               <Label
                 htmlFor="assetUpload"
                 className="inline-flex items-center px-4 py-2 border border-neutral-300 rounded-md shadow-sm text-sm font-medium text-neutral-700 bg-white hover:bg-neutral-50 cursor-pointer"

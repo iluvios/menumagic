@@ -4,29 +4,29 @@ import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { EditIcon, TrashIcon, UtensilsCrossedIcon } from "lucide-react"
-import { MenuItemFormDialog } from "@/components/menu-item-form-dialog"
-// import type { ReusableMenuItem } from "@/lib/types" // Temporarily removed for linting
+import MenuItemFormDialog from "@/components/menu-item-form-dialog"
+import type { ReusableMenuItem } from "@/lib/types" // Assuming ReusableMenuItem type
 import { formatCurrency } from "@/lib/utils/client-formatters"
 import { DishRecipeDialog } from "./dish-recipe-dialog"
 import {
   deleteReusableMenuItem,
-  // updateReusableMenuItem, // No longer directly called from here for dialog
-  // createReusableMenuItem, // No longer directly called from here for dialog
-} from "@/lib/actions/menu-studio-actions"
+  updateReusableMenuItem,
+  createReusableMenuItem,
+} from "@/lib/actions/menu-studio-actions" // Import from consolidated actions
 
 interface ReusableMenuItemsListProps {
-  items: any[] // Temporarily using any[] for ReusableMenuItem
+  items: ReusableMenuItem[]
   onItemUpdated: () => void
   onItemDeleted: () => void
 }
 
 export function ReusableMenuItemsList({ items, onItemUpdated, onItemDeleted }: ReusableMenuItemsListProps) {
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false)
-  const [editingItem, setEditingItem] = useState<any | null>(null) // Temporarily using any
+  const [editingItem, setEditingItem] = useState<ReusableMenuItem | null>(null)
   const [isRecipeDialogOpen, setIsRecipeDialogOpen] = useState(false)
-  const [selectedRecipeItem, setSelectedRecipeItem] = useState<any | null>(null) // Temporarily using any
+  const [selectedRecipeItem, setSelectedRecipeItem] = useState<ReusableMenuItem | null>(null)
 
-  const handleEdit = (item: any) => { // Temporarily using any
+  const handleEdit = (item: ReusableMenuItem) => {
     setEditingItem(item)
     setIsFormDialogOpen(true)
   }
@@ -39,7 +39,7 @@ export function ReusableMenuItemsList({ items, onItemUpdated, onItemDeleted }: R
     ) {
       try {
         await deleteReusableMenuItem(id)
-        onItemDeleted() // Corrected: was onItemUpdated, should be onItemDeleted
+        onItemDeleted()
       } catch (error) {
         console.error("Failed to delete reusable menu item:", error)
         alert("Failed to delete global dish. Please try again.")
@@ -47,26 +47,30 @@ export function ReusableMenuItemsList({ items, onItemUpdated, onItemDeleted }: R
     }
   }
 
-  // The MenuItemFormDialog will now handle its own save operations for reusable items.
-  // This handleSave is no longer directly wired to the dialog's save mechanism.
-  // const handleSave = async (data: any) => { ... }
+  const handleSave = async (data: any) => {
+    try {
+      if (editingItem) {
+        await updateReusableMenuItem(editingItem.id, data)
+      } else {
+        await createReusableMenuItem(data)
+      }
+      onItemUpdated()
+      setIsFormDialogOpen(false)
+      setEditingItem(null)
+    } catch (error) {
+      console.error("Failed to save reusable menu item:", error)
+      alert("Failed to save global dish. Please try again.")
+    }
+  }
 
-  const handleOpenRecipe = (item: any) => { // Temporarily using any
+  const handleOpenRecipe = (item: ReusableMenuItem) => {
     setSelectedRecipeItem(item)
     setIsRecipeDialogOpen(true)
   }
 
-  // Defensive check for items prop
-  if (!items || !Array.isArray(items)) {
-    console.error("[ReusableMenuItemsList] items prop is undefined or not an array. Received:", items)
-    // return <div className="text-center py-4">Error: Items data is not available.</div>;
-  }
-
-  const safeItems = Array.isArray(items) ? items : []
-
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-      {safeItems.map((item) => (
+      {items.map((item) => (
         <Card key={item.id} className="flex flex-col">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-lg font-medium">{item.name}</CardTitle>
@@ -110,28 +114,17 @@ export function ReusableMenuItemsList({ items, onItemUpdated, onItemDeleted }: R
 
       <MenuItemFormDialog
         isOpen={isFormDialogOpen}
-        onOpenChange={(isOpen) => {
-          setIsFormDialogOpen(isOpen);
-          if (!isOpen) setEditingItem(null); // Clear editing item when dialog closes
-        }}
-        onSaveSuccess={() => {
-          onItemUpdated(); // Call prop from parent
-          setIsFormDialogOpen(false); // Close dialog
-          setEditingItem(null); // Clear editing item
-        }}
-        currentMenuItem={editingItem} 
-        isReusableItemForm={true}
-        categories={[]} 
-        onCategoriesUpdated={() => {}} 
+        onOpenChange={setIsFormDialogOpen}
+        onSubmit={handleSave}
+        initialData={editingItem}
+        isReusable={true} // Indicate that this is for reusable items
       />
 
       {selectedRecipeItem && (
         <DishRecipeDialog
           isOpen={isRecipeDialogOpen}
           onOpenChange={setIsRecipeDialogOpen}
-          reusableMenuItemId={selectedRecipeItem.id}
-          reusableMenuItemName={selectedRecipeItem.name}
-          onSaveSuccess={onItemUpdated} 
+          reusableMenuItem={selectedRecipeItem}
         />
       )}
     </div>

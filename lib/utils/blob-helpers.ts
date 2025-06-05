@@ -1,6 +1,5 @@
 import { put } from "@vercel/blob"
 import { customAlphabet } from "nanoid"
-import { UTApi } from "uploadthing/server"
 
 const nanoid = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 10)
 
@@ -23,5 +22,6 @@ export async function uploadBase64ImageToBlob(base64Data: string, filename: stri
   return blob.url
 }
 
-// Initialize and export the actual UploadThing client
-export const utapi = new UTApi()
+// Placeholder export for utapi to resolve build error.
+// If you are using UploadThing, replace this with your actual utapi client.
+export const utapi = {}

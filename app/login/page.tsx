@@ -1,17 +1,29 @@
 "use client"
-import { Menu } from "lucide-react"
+import { Menu } from 'lucide-react'
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react" // Added useRef
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Eye, EyeOff, ArrowLeft, Mail, Lock } from "lucide-react"
+import { Eye, EyeOff, ArrowLeft, Mail, Lock } from 'lucide-react'
 import Link from "next/link"
 import { loginUser } from "@/lib/auth"
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
+  const formRef = useRef<HTMLFormElement>(null) // Ref for the form
+
+  useEffect(() => {
+    // Auto-login for debugging purposes
+    if (process.env.NEXT_PUBLIC_DEBUG_AUTO_LOGIN === "true" && formRef.current) {
+      const formData = new FormData()
+      formData.append("email", "cliente3@gmail.com")
+      formData.append("password", "00000000")
+      // Programmatically submit the form
+      loginUser(formData)
+    }
+  }, []) // Run once on mount
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 flex items-center justify-center p-4">
@@ -46,7 +58,9 @@ export default function LoginPage() {
           </CardHeader>
 
           <CardContent>
-            <form action={loginUser} className="space-y-5">
+            <form ref={formRef} action={loginUser} className="space-y-5">
+              {" "}
+              {/* Added ref */}
               {/* Email Field */}
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-sm font-medium text-gray-700">
@@ -61,10 +75,10 @@ export default function LoginPage() {
                     placeholder="tu@restaurante.com"
                     className="pl-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
                     required
+                    defaultValue="cliente3@gmail.com" // Pre-fill for convenience
                   />
                 </div>
               </div>
-
               {/* Password Field */}
               <div className="space-y-2">
                 <Label htmlFor="password" className="text-sm font-medium text-gray-700">
@@ -79,6 +93,7 @@ export default function LoginPage() {
                     placeholder="Tu contraseña"
                     className="pl-10 pr-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
                     required
+                    defaultValue="00000000" // Pre-fill for convenience
                   />
                   <button
                     type="button"
@@ -89,7 +104,6 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
-
               {/* Forgot Password Link */}
               <div className="text-right text-sm">
                 <Link
@@ -99,7 +113,6 @@ export default function LoginPage() {
                   ¿Olvidaste tu contraseña?
                 </Link>
               </div>
-
               {/* Login Button */}
               <Button
                 type="submit"
@@ -107,7 +120,6 @@ export default function LoginPage() {
               >
                 Iniciar Sesión
               </Button>
-
               {/* Divider */}
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
@@ -117,7 +129,6 @@ export default function LoginPage() {
                   <span className="px-4 bg-white text-gray-500">o inicia sesión con</span>
                 </div>
               </div>
-
               {/* Social Login Buttons */}
               <div className="grid grid-cols-2 gap-4">
                 <Button type="button" variant="outline" className="h-12 border-gray-200 hover:bg-gray-50">

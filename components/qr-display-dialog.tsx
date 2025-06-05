@@ -11,17 +11,15 @@ import { uploadQrCodeForDigitalMenu } from "@/lib/actions/digital-menu-actions"
 import { toast } from "@/hooks/use-toast"
 
 interface QRDisplayDialogProps {
-  // Interface name also updated for consistency
   isOpen: boolean
   onClose: () => void
   menuId: number
   menuName: string
-  qrCodeUrl?: string | null // Existing QR code URL from DB
-  publicMenuBaseUrl: string // Base URL for the public menu page
+  qrCodeUrl?: string | null
+  publicMenuBaseUrl: string
 }
 
 export function QRDisplayDialog({
-  // Export name changed to QRDisplayDialog
   isOpen,
   onClose,
   menuId,
@@ -53,7 +51,6 @@ export function QRDisplayDialog({
       const base64Image = `data:image/png;base64,${qrCodeBuffer.toString("base64")}`
       setGeneratedQrCodeDataUrl(base64Image)
 
-      // Upload to Vercel Blob
       const uploadResult = await uploadQrCodeForDigitalMenu(menuId, base64Image)
       if (uploadResult.success) {
         toast({
@@ -81,11 +78,9 @@ export function QRDisplayDialog({
       if (qrCodeUrl) {
         setGeneratedQrCodeDataUrl(qrCodeUrl)
       } else {
-        // If no existing QR code, generate a new one when dialog opens
         generateAndUploadQrCode()
       }
     } else {
-      // Reset state when dialog closes
       setGeneratedQrCodeDataUrl(null)
       setIsLoading(false)
       setIsUploading(false)
@@ -146,7 +141,7 @@ export function QRDisplayDialog({
         title: "Compartir no soportado",
         description: "Tu navegador no soporta la función de compartir nativa.",
       })
-      handleCopyLink() // Fallback to copy link
+      handleCopyLink()
     }
   }
 

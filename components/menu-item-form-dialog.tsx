@@ -66,7 +66,7 @@ interface MenuItemFormDialogProps {
   onOpenCategoryManager?: () => void // New prop to open category manager
 }
 
-export function MenuItemFormDialog({
+export default function MenuItemFormDialog({
   isOpen,
   onOpenChange,
   currentMenuItem,
