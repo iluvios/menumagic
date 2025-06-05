@@ -24,9 +24,7 @@ export default function RecipesPage() {
   const fetchCategories = async () => {
     setIsLoading(true)
     try {
-      console.log("RecipesPage: Fetching global categories...")
       const data = await getAllGlobalCategories()
-      console.log("RecipesPage: Global categories fetched:", data)
       setCategories(data)
     } catch (error: any) {
       toast({
@@ -34,18 +32,17 @@ export default function RecipesPage() {
         description: error.message || "No se pudieron cargar las categorías.",
         variant: "destructive",
       })
-      console.error("RecipesPage: Error fetching global categories:", error)
     } finally {
       setIsLoading(false)
     }
   }
 
   const handleSaveSuccess = () => {
-    console.log("RecipesPage: Recipe/dish saved successfully, triggering category refresh in ReusableMenuItemsList")
+    // This will trigger a refresh in the ReusableMenuItemsList component
+    console.log("Recipe/dish saved successfully")
   }
 
   const handleCategoriesUpdated = () => {
-    console.log("RecipesPage: Categories updated, re-fetching categories for this page.")
     fetchCategories()
   }
 

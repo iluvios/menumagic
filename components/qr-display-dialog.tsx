@@ -1,201 +1,195 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Copy, Download, Share2 } from "lucide-react"
-import QRCode from "qrcode"
-import { uploadQrCodeForDigitalMenu } from "@/lib/actions/digital-menu-actions"
-import { toast } from "@/hooks/use-toast"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { QRCodeCanvas } from "qrcode.react"
+import { Download, Share2 } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+// Remove any utapi imports if they exist
 
 interface QRDisplayDialogProps {
   isOpen: boolean
-  onClose: () => void
+  onOpenChange: (open: boolean) => void
+  qrCodeUrl: string | null
   menuId: number
   menuName: string
-  qrCodeUrl?: string | null
-  publicMenuBaseUrl: string
+  onQrCodeGenerated?: (menuId: number, base64Image: string) => void
 }
 
 export function QRDisplayDialog({
   isOpen,
-  onClose,
+  onOpenChange,
+  qrCodeUrl,
   menuId,
   menuName,
-  qrCodeUrl,
-  publicMenuBaseUrl,
+  onQrCodeGenerated,
 }: QRDisplayDialogProps) {
-  const [generatedQrCodeDataUrl, setGeneratedQrCodeDataUrl] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
-
-  const publicMenuLink = `${publicMenuBaseUrl}/menu/${menuId}`
-
-  const generateAndUploadQrCode = useCallback(async () => {
-    setIsLoading(true)
-    setIsUploading(true)
-    try {
-      const qrCodeBuffer = await QRCode.toBuffer(publicMenuLink, {
-        errorCorrectionLevel: "H",
-        type: "image/png",
-        width: 500,
-        margin: 1,
-        color: {
-          dark: "#000000",
-          light: "#FFFFFF",
-        },
-      })
-
-      const base64Image = `data:image/png;base64,${qrCodeBuffer.toString("base64")}`
-      setGeneratedQrCodeDataUrl(base64Image)
-
-      const uploadResult = await uploadQrCodeForDigitalMenu(menuId, base64Image)
-      if (uploadResult.success) {
-        toast({
-          title: "QR Code generado y guardado",
-          description: "El código QR ha sido generado y subido exitosamente.",
-        })
-      } else {
-        throw new Error("Failed to upload QR code.")
-      }
-    } catch (error) {
-      console.error("Error generating or uploading QR code:", error)
-      toast({
-        title: "Error al generar QR",
-        description: "Hubo un problema al generar o subir el código QR. Inténtalo de nuevo.",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
-      setIsUploading(false)
-    }
-  }, [menuId, publicMenuLink])
+  const { toast } = useToast()
+  const qrRef = useRef<HTMLDivElement>(null)
+  const [qrValue, setQrValue] = useState<string>("")
+  const [isGenerating, setIsGenerating] = useState<boolean>(false)
 
   useEffect(() => {
-    if (isOpen) {
-      if (qrCodeUrl) {
-        setGeneratedQrCodeDataUrl(qrCodeUrl)
-      } else {
-        generateAndUploadQrCode()
-      }
-    } else {
-      setGeneratedQrCodeDataUrl(null)
-      setIsLoading(false)
-      setIsUploading(false)
-    }
-  }, [isOpen, qrCodeUrl, generateAndUploadQrCode])
-
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(publicMenuLink)
-    toast({
-      title: "Enlace copiado",
-      description: "El enlace del menú ha sido copiado al portapapeles.",
-    })
-  }
+    // Set the QR code value to the public URL of the menu
+    const baseUrl = process.env.NEXT_PUBLIC_VERCEL_URL || window.location.origin
+    setQrValue(`${baseUrl}/menu/${menuId}`)
+  }, [menuId])
 
   const handleDownload = () => {
-    if (generatedQrCodeDataUrl) {
+    if (!qrRef.current) return
+
+    try {
+      const canvas = qrRef.current.querySelector("canvas")
+      if (!canvas) {
+        toast({
+          title: "Error",
+          description: "Could not find QR code canvas element.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const image = canvas.toDataURL("image/png")
       const link = document.createElement("a")
-      link.href = generatedQrCodeDataUrl
-      link.download = `menu-magic-qr-${menuId}.png`
+      link.href = image
+      link.download = `qr-code-${menuName.toLowerCase().replace(/\s+/g, "-")}.png`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
+
       toast({
-        title: "Descarga iniciada",
-        description: "Tu código QR se está descargando.",
+        title: "Success",
+        description: "QR code downloaded successfully.",
       })
-    } else {
+    } catch (error) {
+      console.error("Error downloading QR code:", error)
       toast({
-        title: "Error de descarga",
-        description: "No hay un código QR disponible para descargar.",
+        title: "Error",
+        description: "Failed to download QR code.",
         variant: "destructive",
       })
     }
   }
 
   const handleShare = async () => {
-    if (navigator.share) {
-      try {
+    if (!qrRef.current) return
+
+    try {
+      const canvas = qrRef.current.querySelector("canvas")
+      if (!canvas) {
+        toast({
+          title: "Error",
+          description: "Could not find QR code canvas element.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob)
+          } else {
+            throw new Error("Failed to create blob from canvas")
+          }
+        }, "image/png")
+      })
+
+      if (navigator.share) {
         await navigator.share({
-          title: `Menú Digital: ${menuName}`,
-          text: `¡Echa un vistazo a nuestro menú digital!`,
-          url: publicMenuLink,
+          title: `QR Code for ${menuName}`,
+          text: "Scan this QR code to view our menu",
+          files: [
+            new File([blob], `qr-code-${menuName.toLowerCase().replace(/\s+/g, "-")}.png`, { type: "image/png" }),
+          ],
         })
         toast({
-          title: "Menú compartido",
-          description: "El enlace del menú ha sido compartido exitosamente.",
+          title: "Success",
+          description: "QR code shared successfully.",
         })
-      } catch (error) {
-        console.error("Error sharing:", error)
+      } else {
         toast({
-          title: "Error al compartir",
-          description: "No se pudo compartir el enlace del menú.",
+          title: "Error",
+          description: "Web Share API is not supported in this browser.",
           variant: "destructive",
         })
       }
-    } else {
+    } catch (error) {
+      console.error("Error sharing QR code:", error)
       toast({
-        title: "Compartir no soportado",
-        description: "Tu navegador no soporta la función de compartir nativa.",
+        title: "Error",
+        description: "Failed to share QR code.",
+        variant: "destructive",
       })
-      handleCopyLink()
+    }
+  }
+
+  const handleGenerateAndUpload = async () => {
+    if (!qrRef.current || !onQrCodeGenerated) return
+
+    try {
+      setIsGenerating(true)
+      const canvas = qrRef.current.querySelector("canvas")
+      if (!canvas) {
+        toast({
+          title: "Error",
+          description: "Could not find QR code canvas element.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const base64Image = canvas.toDataURL("image/png").split(",")[1]
+      await onQrCodeGenerated(menuId, base64Image)
+
+      toast({
+        title: "Success",
+        description: "QR code generated and uploaded successfully.",
+      })
+    } catch (error) {
+      console.error("Error generating and uploading QR code:", error)
+      toast({
+        title: "Error",
+        description: "Failed to generate and upload QR code.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsGenerating(false)
     }
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px]">
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Código QR de tu Menú Digital</DialogTitle>
-          <DialogDescription>
-            Comparte este código QR para que tus clientes accedan a tu menú digital.
-          </DialogDescription>
+          <DialogTitle>QR Code for {menuName}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="flex flex-col items-center justify-center space-y-4">
-            {isLoading ? (
-              <div className="flex flex-col items-center justify-center h-64 w-64 border rounded-lg bg-gray-50">
-                <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-3" />
-                <p className="text-gray-600">Generando QR...</p>
-              </div>
-            ) : generatedQrCodeDataUrl ? (
-              <img
-                src={generatedQrCodeDataUrl || "/placeholder.svg"}
-                alt="Código QR del menú"
-                width={250}
-                height={250}
-                className="aspect-square object-contain border rounded-lg p-2"
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center h-64 w-64 border rounded-lg bg-gray-50 text-gray-500">
-                <p>No QR Code available. Generate below.</p>
-              </div>
-            )}
-            <Button onClick={generateAndUploadQrCode} disabled={isLoading || isUploading} className="w-full">
-              {isUploading ? "Subiendo QR..." : "Regenerar y Guardar QR"}
-            </Button>
+        <div className="flex flex-col items-center justify-center p-4">
+          <div ref={qrRef} className="bg-white p-4 rounded-lg">
+            {qrValue && <QRCodeCanvas value={qrValue} size={200} level="H" />}
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="menu-link">Enlace del Menú</Label>
-            <div className="flex space-x-2">
-              <Input id="menu-link" readOnly value={publicMenuLink} />
-              <Button variant="outline" size="icon" onClick={handleCopyLink}>
-                <Copy className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-          <div className="flex justify-around pt-2">
-            <Button variant="outline" onClick={handleDownload} disabled={!generatedQrCodeDataUrl}>
-              <Download className="mr-2 h-4 w-4" /> Descargar
-            </Button>
-            <Button variant="outline" onClick={handleShare}>
-              <Share2 className="mr-2 h-4 w-4" /> Compartir
-            </Button>
-          </div>
+          <p className="text-sm text-muted-foreground mt-4 text-center">
+            Scan this QR code to view the digital menu for {menuName}
+          </p>
         </div>
+        <DialogFooter className="flex flex-col sm:flex-row sm:justify-between gap-2">
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleDownload} className="flex-1">
+              <Download className="mr-2 h-4 w-4" />
+              Download
+            </Button>
+            <Button variant="outline" onClick={handleShare} className="flex-1">
+              <Share2 className="mr-2 h-4 w-4" />
+              Share
+            </Button>
+          </div>
+          {onQrCodeGenerated && (
+            <Button onClick={handleGenerateAndUpload} disabled={isGenerating} className="flex-1">
+              {isGenerating ? "Generating..." : "Save to Menu"}
+            </Button>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

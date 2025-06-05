@@ -1,6 +1,6 @@
 "use server"
 
-import { sql } from "@/lib/db" // Import sql from lib/db
+import { sql } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { put } from "@vercel/blob"
 import type { PutBlobResult } from "@vercel/blob"
@@ -33,7 +33,6 @@ export interface MenuTemplate {
   updated_at?: string
 }
 
-// Get all templates for a restaurant (renamed from getMenuTemplates)
 export async function getTemplates() {
   try {
     const templates = await sql`
@@ -47,8 +46,9 @@ export async function getTemplates() {
     return []
   }
 }
+// Alias for backward compatibility
+export { getTemplates as getMenuTemplates }
 
-// Get a specific template by ID (renamed from getMenuTemplateById)
 export async function getTemplateById(id: number) {
   try {
     const result = await sql`
@@ -63,8 +63,9 @@ export async function getTemplateById(id: number) {
     throw new Error("Failed to fetch menu template.")
   }
 }
+// Alias for backward compatibility
+export { getTemplateById as getMenuTemplateById }
 
-// Create a new template (renamed from createMenuTemplate)
 export async function createTemplate(
   data: {
     name: string
@@ -100,8 +101,9 @@ export async function createTemplate(
     throw new Error("Failed to create menu template.")
   }
 }
+// Alias for backward compatibility
+export { createTemplate as createMenuTemplate }
 
-// Update an existing template (renamed from updateMenuTemplate)
 export async function updateTemplate(
   id: number,
   data: {
@@ -142,8 +144,9 @@ export async function updateTemplate(
     throw new Error("Failed to update menu template.")
   }
 }
+// Alias for backward compatibility
+export { updateTemplate as updateMenuTemplate }
 
-// Delete a template (renamed from deleteMenuTemplate)
 export async function deleteTemplate(id: number) {
   try {
     // First, unlink any digital menus using this template
@@ -165,8 +168,9 @@ export async function deleteTemplate(id: number) {
     throw new Error("Failed to delete menu template.")
   }
 }
+// Alias for backward compatibility
+export { deleteTemplate as deleteMenuTemplate }
 
-// Apply a template to a digital menu (renamed from applyTemplateToMenu)
 export async function applyTemplateToMenu(digitalMenuId: number, templateId: number) {
   try {
     await sql`
@@ -182,7 +186,6 @@ export async function applyTemplateToMenu(digitalMenuId: number, templateId: num
   }
 }
 
-// Mock AI template generation (renamed from generateTemplateWithAI)
 export async function generateTemplateWithAI(
   prompt: string,
   baseTemplateId?: number,
@@ -218,7 +221,6 @@ export async function generateTemplateWithAI(
   return aiGeneratedTemplate
 }
 
-// Seed default templates (renamed from seedDefaultTemplates)
 export async function seedDefaultTemplates(restaurantId = 1) {
   try {
     // Check if default templates already exist

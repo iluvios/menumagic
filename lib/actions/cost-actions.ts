@@ -5,7 +5,6 @@ import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
 
 export async function getCosts() {
-  // Renamed from getCostAnalysis
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
@@ -13,7 +12,6 @@ export async function getCosts() {
       return { recipes: [], ingredients: [], summary: {} }
     }
 
-    // Get recipe costs
     const recipeCosts = await sql`
       SELECT
         r.id,
@@ -33,7 +31,6 @@ export async function getCosts() {
       ORDER BY r.margin_percentage DESC
     `
 
-    // Get ingredient costs
     const ingredientCosts = await sql`
       SELECT
         i.id,
@@ -50,7 +47,6 @@ export async function getCosts() {
       ORDER BY i.cost_per_unit DESC
     `
 
-    // Get cost summary
     const costSummary = await sql`
       SELECT
         COUNT(DISTINCT r.id)::int as total_recipes,
@@ -77,25 +73,23 @@ export async function getCosts() {
     }
   }
 }
+// Alias for backward compatibility
+export { getCosts as getCostAnalysis }
 
 export async function updateCost(id: number, data: any) {
-  // Placeholder for updateCost
   console.warn(`Placeholder: updateCost called for ID ${id} with data:`, data)
-  // Implement actual update logic here
   revalidatePath("/dashboard/costs")
   return { success: true }
 }
 
 export async function deleteCost(id: number) {
-  // Placeholder for deleteCost
   console.warn(`Placeholder: deleteCost called for ID ${id}`)
-  // Implement actual delete logic here
   revalidatePath("/dashboard/costs")
   return { success: true }
 }
 
 export async function getRecipeCosts() {
-  const { recipes } = await getCosts() // Updated to use getCosts
+  const { recipes } = await getCosts()
   return recipes
 }
 
@@ -155,7 +149,6 @@ export async function updateIngredientCost(id: number, cost: number) {
   }
 }
 
-// Placeholder function to resolve "createCost" missing export error (from previous fix)
 export async function createCost(data: any) {
   console.warn("createCost function called. This is a placeholder and needs implementation or correction.")
   return { success: true, message: "Cost creation placeholder executed." }

@@ -3,203 +3,314 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Save, Clock, DollarSign } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
-import { getRestaurantProfile, updateRestaurantProfile } from "@/lib/actions/restaurant-actions"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { getRestaurantDetails, updateRestaurantDetails } from "@/lib/actions/menu-studio-actions" // Corrected imports
+import { toast } from "@/hooks/use-toast"
+import { Loader2 } from "lucide-react"
 
-interface RestaurantProfileData {
+interface Address {
+  street: string
+  city: string
+  state: string
+  zip: string
+  country: string
+}
+
+interface OperatingHours {
+  [key: string]: {
+    open: string
+    close: string
+    is_closed: boolean
+  }
+}
+
+interface RestaurantDetails {
   id: number
   name: string
-  address_json: any // JSONB type
+  address_json: Address
   phone: string
   email: string
   cuisine_type: string
-  operating_hours_json: any // JSONB type
+  operating_hours_json: OperatingHours
   currency_code: string
   timezone: string
   default_tax_rate_percentage: number
 }
 
+const initialAddress: Address = {
+  street: "",
+  city: "",
+  state: "",
+  zip: "",
+  country: "",
+}
+
+const initialOperatingHours: OperatingHours = {
+  monday: { open: "09:00", close: "17:00", is_closed: false },
+  tuesday: { open: "09:00", close: "17:00", is_closed: false },
+  wednesday: { open: "09:00", close: "17:00", is_closed: false },
+  thursday: { open: "09:00", close: "17:00", is_closed: false },
+  friday: { open: "09:00", close: "17:00", is_closed: false },
+  saturday: { open: "09:00", close: "17:00", is_closed: true },
+  sunday: { open: "09:00", close: "17:00", is_closed: true },
+}
+
 export default function RestaurantProfilePage() {
-  const { toast } = useToast()
-  const [profile, setProfile] = useState<RestaurantProfileData | null>(null)
+  const [restaurant, setRestaurant] = useState<RestaurantDetails | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
 
   useEffect(() => {
-    fetchProfile()
+    async function fetchRestaurantData() {
+      setLoading(true)
+      try {
+        const data = await getRestaurantDetails() // Corrected function call
+        if (data) {
+          setRestaurant({
+            ...data,
+            address_json: data.address_json || initialAddress,
+            operating_hours_json: data.operating_hours_json || initialOperatingHours,
+          })
+        } else {
+          toast({
+            title: "Error",
+            description: "No restaurant data found. Please ensure you are logged in.",
+            variant: "destructive",
+          })
+        }
+      } catch (error) {
+        console.error("Failed to fetch restaurant details:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load restaurant details.",
+          variant: "destructive",
+        })
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchRestaurantData()
   }, [])
 
-  const fetchProfile = async () => {
-    const data = await getRestaurantProfile()
-    setProfile(data)
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { id, value } = e.target
+    setRestaurant((prev) => (prev ? { ...prev, [id]: value } : null))
   }
 
-  const handleUpdateProfile = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!profile) return
-
-    const formData = new FormData(event.currentTarget)
-    const dataToUpdate: Partial<RestaurantProfileData> = {
-      name: formData.get("name") as string,
-      address_json: {
-        street: formData.get("address_street"),
-        city: formData.get("address_city"),
-        state: formData.get("address_state"),
-        zip: formData.get("address_zip"),
-      },
-      phone: formData.get("phone") as string,
-      email: formData.get("email") as string,
-      cuisine_type: formData.get("cuisine_type") as string,
-      // operating_hours_json: {}, // Simplified for MVP, can be expanded
-      currency_code: formData.get("currency_code") as string,
-      timezone: formData.get("timezone") as string,
-      default_tax_rate_percentage: Number.parseFloat(formData.get("default_tax_rate_percentage") as string),
-    }
-
-    const result = await updateRestaurantProfile(profile.id, dataToUpdate)
-    if (result.success) {
-      toast({ title: "Perfil Actualizado", description: "La información de tu restaurante ha sido guardada." })
-      fetchProfile()
-    } else {
-      toast({ title: "Error", description: result.error, variant: "destructive" })
-    }
-  }
-
-  if (!profile) {
-    return (
-      <div className="flex justify-center items-center h-64 text-neutral-500">Cargando perfil del restaurante...</div>
+  const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { id, value } = e.target
+    setRestaurant((prev) =>
+      prev
+        ? {
+            ...prev,
+            address_json: {
+              ...prev.address_json,
+              [id]: value,
+            },
+          }
+        : null,
     )
   }
 
-  return (
-    <div className="space-y-8">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-neutral-900">Restaurant Profile</h1>
-        <Button type="submit" form="profile-form" className="bg-warm-500 hover:bg-warm-600 text-white shadow-md">
-          <Save className="mr-2 h-4 w-4" />
-          Guardar Cambios
-        </Button>
+  const handleOperatingHoursChange = (day: string, field: "open" | "close" | "is_closed", value: string | boolean) => {
+    setRestaurant((prev) =>
+      prev
+        ? {
+            ...prev,
+            operating_hours_json: {
+              ...prev.operating_hours_json,
+              [day]: {
+                ...prev.operating_hours_json[day],
+                [field]: value,
+              },
+            },
+          }
+        : null,
+    )
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!restaurant) return
+
+    setIsSaving(true)
+    try {
+      const result = await updateRestaurantDetails(restaurant.id, restaurant) // Corrected function call
+      if (result.success) {
+        toast({
+          title: "Success",
+          description: "Restaurant details updated successfully.",
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Failed to update restaurant details.",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error("Error updating restaurant details:", error)
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred while saving.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[calc(100vh-64px)]">
+        <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
       </div>
+    )
+  }
 
-      <p className="text-neutral-600">
-        Configura la información básica de tu restaurante, horarios de operación y ajustes financieros.
-      </p>
+  if (!restaurant) {
+    return (
+      <div className="flex items-center justify-center min-h-[calc(100vh-64px)] text-gray-600">
+        No restaurant data available.
+      </div>
+    )
+  }
 
-      <Card className="shadow-lg border-neutral-200">
+  const daysOfWeek = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+  return (
+    <div className="container mx-auto py-8 px-4">
+      <Card className="max-w-4xl mx-auto">
         <CardHeader>
-          <CardTitle className="text-xl font-semibold text-neutral-800">Información General</CardTitle>
+          <CardTitle className="text-3xl font-bold text-center">Restaurant Profile</CardTitle>
+          <CardDescription className="text-center">Manage your restaurant's basic information.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form id="profile-form" onSubmit={handleUpdateProfile} className="grid lg:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="name">Nombre del Restaurante</Label>
-                <Input id="name" name="name" defaultValue={profile.name} required />
+          <form onSubmit={handleSubmit} className="grid gap-6">
+            <div className="grid gap-2">
+              <Label htmlFor="name">Restaurant Name</Label>
+              <Input id="name" value={restaurant.name} onChange={handleChange} required />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="cuisine_type">Cuisine Type</Label>
+              <Input id="cuisine_type" value={restaurant.cuisine_type} onChange={handleChange} />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" type="email" value={restaurant.email} onChange={handleChange} />
               </div>
-              <div>
-                <Label htmlFor="cuisine_type">Tipo de Cocina</Label>
-                <Input
-                  id="cuisine_type"
-                  name="cuisine_type"
-                  defaultValue={profile.cuisine_type}
-                  placeholder="Ej: Mexicana, Italiana, Fusión"
-                />
-              </div>
-              <div>
-                <Label htmlFor="email">Email de Contacto</Label>
-                <Input id="email" name="email" type="email" defaultValue={profile.email} required />
-              </div>
-              <div>
-                <Label htmlFor="phone">Teléfono de Contacto</Label>
-                <Input id="phone" name="phone" defaultValue={profile.phone} placeholder="Ej: +52 55 1234 5678" />
+              <div className="grid gap-2">
+                <Label htmlFor="phone">Phone</Label>
+                <Input id="phone" type="tel" value={restaurant.phone} onChange={handleChange} />
               </div>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="address_street">Dirección</Label>
+            <div className="grid gap-2">
+              <Label>Address</Label>
+              <Input
+                id="street"
+                placeholder="Street"
+                value={restaurant.address_json.street}
+                onChange={handleAddressChange}
+                className="mb-2"
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <Input
-                  id="address_street"
-                  name="address_street"
-                  defaultValue={profile.address_json?.street || ""}
-                  placeholder="Calle y número"
+                  id="city"
+                  placeholder="City"
+                  value={restaurant.address_json.city}
+                  onChange={handleAddressChange}
+                />
+                <Input
+                  id="state"
+                  placeholder="State"
+                  value={restaurant.address_json.state}
+                  onChange={handleAddressChange}
+                />
+                <Input
+                  id="zip"
+                  placeholder="Zip Code"
+                  value={restaurant.address_json.zip}
+                  onChange={handleAddressChange}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="address_city">Ciudad</Label>
-                  <Input id="address_city" name="address_city" defaultValue={profile.address_json?.city || ""} />
-                </div>
-                <div>
-                  <Label htmlFor="address_state">Estado</Label>
-                  <Input id="address_state" name="address_state" defaultValue={profile.address_json?.state || ""} />
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="address_zip">Código Postal</Label>
-                <Input id="address_zip" name="address_zip" defaultValue={profile.address_json?.zip || ""} />
-              </div>
-            </div>
-
-            <div className="lg:col-span-2 space-y-4">
-              <h3 className="text-lg font-semibold text-neutral-800 flex items-center">
-                <Clock className="mr-2 h-5 w-5 text-neutral-500" /> Horarios de Operación
-              </h3>
-              <p className="text-sm text-neutral-600">Configura los horarios en los que tu restaurante está abierto.</p>
-              {/* Simplified for MVP, in a real app this would be a more complex component */}
-              <Textarea
-                id="operating_hours"
-                name="operating_hours_json"
-                defaultValue={JSON.stringify(profile.operating_hours_json || {})}
-                placeholder="Ej: Lunes-Viernes: 9 AM - 10 PM"
-                rows={3}
+              <Input
+                id="country"
+                placeholder="Country"
+                value={restaurant.address_json.country}
+                onChange={handleAddressChange}
+                className="mt-2"
               />
             </div>
 
-            <div className="lg:col-span-2 space-y-4">
-              <h3 className="text-lg font-semibold text-neutral-800 flex items-center">
-                <DollarSign className="mr-2 h-5 w-5 text-neutral-500" /> Ajustes Financieros
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="currency_code">Moneda</Label>
-                  <Select name="currency_code" defaultValue={profile.currency_code}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecciona moneda" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="USD">USD - Dólar Americano</SelectItem>
-                      <SelectItem value="MXN">MXN - Peso Mexicano</SelectItem>
-                      <SelectItem value="EUR">EUR - Euro</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="timezone">Zona Horaria</Label>
-                  <Input
-                    id="timezone"
-                    name="timezone"
-                    defaultValue={profile.timezone}
-                    placeholder="Ej: America/Mexico_City"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="default_tax_rate_percentage">Tasa de Impuesto (%)</Label>
-                  <Input
-                    id="default_tax_rate_percentage"
-                    name="default_tax_rate_percentage"
-                    type="number"
-                    step="0.01"
-                    defaultValue={profile.default_tax_rate_percentage}
-                  />
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="currency_code">Currency Code</Label>
+                <Input id="currency_code" value={restaurant.currency_code} onChange={handleChange} />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="timezone">Timezone</Label>
+                <Input id="timezone" value={restaurant.timezone} onChange={handleChange} />
               </div>
             </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="default_tax_rate_percentage">Default Tax Rate (%)</Label>
+              <Input
+                id="default_tax_rate_percentage"
+                type="number"
+                step="0.01"
+                value={restaurant.default_tax_rate_percentage}
+                onChange={handleChange}
+              />
+            </div>
+
+            <div className="grid gap-4">
+              <Label>Operating Hours</Label>
+              {daysOfWeek.map((day) => (
+                <div key={day} className="grid grid-cols-4 items-center gap-2">
+                  <Label className="capitalize">{day}</Label>
+                  <Input
+                    type="time"
+                    value={restaurant.operating_hours_json[day]?.open || ""}
+                    onChange={(e) => handleOperatingHoursChange(day, "open", e.target.value)}
+                    disabled={restaurant.operating_hours_json[day]?.is_closed}
+                  />
+                  <Input
+                    type="time"
+                    value={restaurant.operating_hours_json[day]?.close || ""}
+                    onChange={(e) => handleOperatingHoursChange(day, "close", e.target.value)}
+                    disabled={restaurant.operating_hours_json[day]?.is_closed}
+                  />
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id={`closed-${day}`}
+                      checked={restaurant.operating_hours_json[day]?.is_closed || false}
+                      onChange={(e) => handleOperatingHoursChange(day, "is_closed", e.target.checked)}
+                      className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
+                    />
+                    <Label htmlFor={`closed-${day}`}>Closed</Label>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <Button type="submit" className="w-full" disabled={isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
+                </>
+              ) : (
+                "Save Changes"
+              )}
+            </Button>
           </form>
         </CardContent>
       </Card>

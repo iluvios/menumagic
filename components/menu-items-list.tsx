@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Card, CardDescription, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { EditIcon, TrashIcon, GripVerticalIcon } from "lucide-react"
-import MenuItemFormDialog from "@/components/menu-item-form-dialog" // Corrected import statement
+import { MenuItemFormDialog } from "@/components/menu-item-form-dialog"
 import type { MenuItem } from "@/lib/types" // Assuming MenuItem type
 import { formatCurrency } from "@/lib/utils/client-formatters"
 import { deleteMenuItem, updateMenuItem, createMenuItem, updateMenuItemOrder } from "@/lib/actions/menu-studio-actions" // Import from consolidated actions

@@ -1,89 +1,104 @@
 "use client"
 
-import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { useState, useEffect } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { toast } from "sonner"
-import QRCode from "qrcode.react"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { getDigitalMenus } from "@/lib/actions/menu-studio-actions"
+import { toast } from "@/hooks/use-toast"
+import { QRDisplayDialog } from "@/components/qr-display-dialog" // Corrected named import
 
-const QrGeneratePage = () => {
-  const [inputValue, setInputValue] = useState("")
-  const [qrCode, setQrCode] = useState("")
+export default function GenerateQRPage() {
+  const [digitalMenus, setDigitalMenus] = useState<any[]>([])
+  const [selectedMenuId, setSelectedMenuId] = useState<number | null>(null)
+  const [selectedMenuName, setSelectedMenuName] = useState<string>("")
+  const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null)
+  const [isQrDialogOpen, setIsQrDialogOpen] = useState(false)
+  const publicMenuBaseUrl = process.env.NEXT_PUBLIC_VERCEL_URL || "http://localhost:3000"
 
-  const handleGenerateQrCode = () => {
-    if (!inputValue) {
-      toast.error("Please enter some text to generate QR code.")
-      return
+  useEffect(() => {
+    async function fetchMenus() {
+      try {
+        const menus = await getDigitalMenus()
+        setDigitalMenus(menus)
+        if (menus.length > 0) {
+          setSelectedMenuId(menus[0].id)
+          setSelectedMenuName(menus[0].name)
+          setQrCodeUrl(menus[0].qr_code_url)
+        }
+      } catch (error) {
+        console.error("Error fetching digital menus:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load digital menus.",
+          variant: "destructive",
+        })
+      }
     }
+    fetchMenus()
+  }, [])
 
-    try {
-      setQrCode(inputValue)
-      toast.success("QR Code Generated!")
-    } catch (error) {
-      console.error("Error generating QR code:", error)
-      toast.error("Failed to generate QR code.")
+  const handleMenuSelect = (value: string) => {
+    const id = Number.parseInt(value)
+    setSelectedMenuId(id)
+    const menu = digitalMenus.find((m) => m.id === id)
+    if (menu) {
+      setSelectedMenuName(menu.name)
+      setQrCodeUrl(menu.qr_code_url)
     }
   }
 
-  const handleDownloadQrCode = () => {
-    if (!qrCode) {
-      toast.error("No QR code to download. Generate one first.")
-      return
-    }
-
-    try {
-      const canvas = document.getElementById("qr-gen") as HTMLCanvasElement
-
-      if (!canvas) {
-        toast.error("Could not find QR code canvas.")
-        return
-      }
-
-      const url = canvas.toDataURL()
-      const link = document.createElement("a")
-      link.href = url
-      link.download = "qr-code.png"
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      toast.success("QR Code Downloaded!")
-    } catch (error) {
-      console.error("Error downloading QR code:", error)
-      toast.error("Failed to download QR code.")
+  const handleGenerateQr = () => {
+    if (selectedMenuId) {
+      setIsQrDialogOpen(true)
+    } else {
+      toast({
+        title: "Selección requerida",
+        description: "Por favor, selecciona un menú digital para generar el código QR.",
+        variant: "destructive",
+      })
     }
   }
 
   return (
-    <div className="container mx-auto py-10">
-      <Card className="w-[500px] mx-auto">
+    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-64px)] bg-gray-100 p-4">
+      <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>QR Code Generator</CardTitle>
-          <CardDescription>Enter text to generate a QR code.</CardDescription>
+          <CardTitle className="text-2xl font-bold text-center">Generar Código QR del Menú</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4">
+        <CardContent className="space-y-6">
           <div className="grid gap-2">
-            <Input
-              type="text"
-              placeholder="Enter text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-            />
+            <Label htmlFor="digital-menu">Selecciona un Menú Digital</Label>
+            <Select onValueChange={handleMenuSelect} value={selectedMenuId?.toString() || ""}>
+              <SelectTrigger id="digital-menu">
+                <SelectValue placeholder="Selecciona un menú" />
+              </SelectTrigger>
+              <SelectContent>
+                {digitalMenus.map((menu) => (
+                  <SelectItem key={menu.id} value={menu.id.toString()}>
+                    {menu.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <Button onClick={handleGenerateQrCode}>Generate QR Code</Button>
-
-          {qrCode && (
-            <div className="flex flex-col items-center justify-center">
-              <QRCode id="qr-gen" value={qrCode} size={256} level="H" />
-              <Button className="mt-4" onClick={handleDownloadQrCode}>
-                Download QR Code
-              </Button>
-            </div>
-          )}
+          <Button onClick={handleGenerateQr} className="w-full">
+            Generar y Ver Código QR
+          </Button>
         </CardContent>
       </Card>
+
+      {selectedMenuId && (
+        <QRDisplayDialog
+          isOpen={isQrDialogOpen}
+          onClose={() => setIsQrDialogOpen(false)}
+          menuId={selectedMenuId}
+          menuName={selectedMenuName}
+          qrCodeUrl={qrCodeUrl}
+          publicMenuBaseUrl={publicMenuBaseUrl}
+        />
+      )}
     </div>
   )
 }
-
-export default QrGeneratePage

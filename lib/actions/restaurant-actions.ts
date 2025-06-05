@@ -2,16 +2,11 @@
 
 import { sql } from "@/lib/db"
 import { revalidatePath } from "next/cache"
-// Import getSession from auth.ts
 import { getSession } from "@/lib/auth"
 
-// --- Restaurant Profile Actions ---
-
-// Modify getRestaurantDetails to use session (renamed from getRestaurantProfile)
 export async function getRestaurantDetails() {
   const session = await getSession()
   if (!session?.restaurantId) {
-    // If no session or restaurantId, return null or handle as unauthenticated
     console.warn("No active session or restaurantId found for getRestaurantDetails.")
     return null
   }
@@ -32,7 +27,6 @@ export async function getRestaurantDetails() {
 }
 
 export async function updateRestaurantDetails(id: number, data: any) {
-  // Renamed from updateRestaurantProfile
   try {
     await sql`
       UPDATE restaurants
@@ -56,3 +50,5 @@ export async function updateRestaurantDetails(id: number, data: any) {
     return { success: false, error: "Failed to update restaurant details" }
   }
 }
+// Alias for backward compatibility
+export { updateRestaurantDetails as updateRestaurantProfile }

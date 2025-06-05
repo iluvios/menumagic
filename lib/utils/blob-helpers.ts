@@ -1,4 +1,4 @@
-import { put } from "@vercel/blob"
+import { put, del } from "@vercel/blob"
 import { customAlphabet } from "nanoid"
 
 const nanoid = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 10)
@@ -22,6 +22,10 @@ export async function uploadBase64ImageToBlob(base64Data: string, filename: stri
   return blob.url
 }
 
-// Placeholder export for utapi to resolve build error.
-// If you are using UploadThing, replace this with your actual utapi client.
-export const utapi = {}
+export async function deleteImageFromBlob(url: string): Promise<void> {
+  try {
+    await del(url)
+  } catch (error) {
+    console.error("Error deleting blob:", error)
+  }
+}
