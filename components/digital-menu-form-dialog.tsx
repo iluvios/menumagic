@@ -1,10 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import * as z from "zod"
-
+import type React from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -14,164 +11,91 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { createDigitalMenu, updateDigitalMenu } from "@/lib/actions/menu-studio-actions"
-import { useToast } from "@/hooks/use-toast"
-import type { DigitalMenu as DigitalMenuType } from "@/lib/types" // Ensure this import is correct
-import { Loader2 } from "lucide-react"
+import { Label } from "@/components/ui/label"
 
-const formSchema = z.object({
-  name: z.string().min(2, {
-    message: "Menu name must be at least 2 characters.",
-  }),
-  status: z.enum(["active", "inactive"], {
-    required_error: "Status is required.",
-  }),
-})
-
-interface DigitalMenuFormDialogProps {
-  isOpen: boolean // Always required
-  onOpenChange: (open: boolean) => void // Always required
-  digitalMenu?: DigitalMenuType | null // Optional: for editing existing menu
-  onSave: (savedMenu?: DigitalMenuType) => void // Modified to pass the menu object
+interface DigitalMenu {
+  id: number
+  name: string
+  status: string
+  qr_code_url?: string
 }
 
-export function DigitalMenuFormDialog({ isOpen, onOpenChange, digitalMenu, onSave }: DigitalMenuFormDialogProps) {
-  const { toast } = useToast()
-  const [isSaving, setIsSaving] = useState(false)
+interface DigitalMenuFormDialogProps {
+  isOpen: boolean
+  onOpenChange: (isOpen: boolean) => void
+  onSubmit: (menuData: { name: string; status: string }) => void
+  initialData?: DigitalMenu | null
+}
 
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      name: digitalMenu?.name || "",
-      status: digitalMenu?.status || "inactive",
-    },
-  })
+export function DigitalMenuFormDialog({ isOpen, onOpenChange, onSubmit, initialData }: DigitalMenuFormDialogProps) {
+  const [name, setName] = useState("")
+  const [status, setStatus] = useState("draft")
 
-  // Sync form with digitalMenu prop for editing or reset for new creation
+  const isEditing = initialData !== null && initialData !== undefined
+
   useEffect(() => {
-    if (isOpen) {
-      console.log("DigitalMenuFormDialog: Dialog opened. Resetting form with:", digitalMenu)
-      form.reset({
-        name: digitalMenu?.name || "",
-        status: digitalMenu?.status || "inactive",
-      })
+    if (isEditing && initialData) {
+      setName(initialData.name)
+      setStatus(initialData.status)
+    } else {
+      setName("")
+      setStatus("draft")
     }
-  }, [digitalMenu, form, isOpen])
+  }, [initialData, isEditing])
 
-  const handleOpenChangeInternal = (open: boolean) => {
-    console.log("DigitalMenuFormDialog: handleOpenChangeInternal called with open:", open)
-    onOpenChange(open)
-    if (!open) {
-      form.reset() // Reset form when dialog closes
-    }
-  }
-
-  async function onSubmit(values: z.infer<typeof formSchema>) {
-    console.log("DigitalMenuFormDialog: onSubmit called with values:", values)
-    setIsSaving(true)
-    try {
-      let savedMenu: DigitalMenuType | undefined
-      if (digitalMenu) {
-        console.log("DigitalMenuFormDialog: Attempting to update menu with ID:", digitalMenu.id)
-        const result = await updateDigitalMenu(digitalMenu.id, values)
-        console.log("DigitalMenuFormDialog: Update result:", result)
-        if (!result.success) {
-          throw new Error(result.error || "Failed to update digital menu.")
-        }
-        savedMenu = result.menu as DigitalMenuType // Cast to DigitalMenuType
-      } else {
-        console.log("DigitalMenuFormDialog: Attempting to create new menu.")
-        const result = await createDigitalMenu(values)
-        console.log("DigitalMenuFormDialog: Create result:", result)
-        if (!result.success) {
-          throw new Error(result.error || "Failed to create digital menu.")
-        }
-        savedMenu = result.menu as DigitalMenuType // Cast to DigitalMenuType
-      }
-      console.log("DigitalMenuFormDialog: Calling onSave with savedMenu:", savedMenu)
-      onSave(savedMenu) // Pass the saved menu object. Parent will handle closing.
-    } catch (error: any) {
-      console.error("DigitalMenuFormDialog: Submission error:", error)
-      toast({
-        title: "Error",
-        description: error.message || "An unexpected error occurred.",
-        variant: "destructive",
-      })
-    } finally {
-      console.log("DigitalMenuFormDialog: Submission finished. Setting isSaving to false.")
-      setIsSaving(false)
-    }
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    onSubmit({ name, status })
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleOpenChangeInternal}>
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>{digitalMenu ? "Edit Digital Menu" : "Create New Digital Menu"}</DialogTitle>
+          <DialogTitle>{isEditing ? "Editar Menú Digital" : "Crear Nuevo Menú Digital"}</DialogTitle>
           <DialogDescription>
-            {digitalMenu ? "Make changes to your digital menu here." : "Create a new digital menu to get started."}
+            {isEditing
+              ? "Actualiza los detalles de tu menú digital."
+              : "Crea un nuevo menú digital para tu restaurante."}
           </DialogDescription>
         </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
-            <FormField
-              control={form.control}
+        <form onSubmit={handleSubmit} className="grid gap-4 py-4">
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="name" className="text-right">
+              Nombre
+            </Label>
+            <Input
+              id="name"
               name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="My Awesome Menu" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Nombre del menú"
+              className="col-span-3"
+              required
             />
-            <FormField
-              control={form.control}
+          </div>
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="status" className="text-right">
+              Estado
+            </Label>
+            <select
+              id="status"
               name="status"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Status</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a status" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="inactive">Inactive</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => handleOpenChangeInternal(false)}
-                disabled={isSaving}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSaving}>
-                {isSaving ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
-                  </>
-                ) : (
-                  "Save changes"
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="col-span-3 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              required
+            >
+              <option value="draft">Borrador</option>
+              <option value="active">Activo</option>
+              <option value="inactive">Inactivo</option>
+            </select>
+          </div>
+          <DialogFooter>
+            <Button type="submit">{isEditing ? "Actualizar Menú" : "Crear Menú"}</Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )

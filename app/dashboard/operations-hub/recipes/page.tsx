@@ -278,17 +278,15 @@ export default function RecipesPage() {
       </div>
 
       {/* Dish Form Dialog */}
-      {isCreateDishDialogOpen && (
-        <MenuItemFormDialog
-          isOpen={isCreateDishDialogOpen}
-          onOpenChange={setIsCreateDishDialogOpen}
-          digitalMenuId={0} // Not needed for global dishes
-          menuItem={editingDish}
-          onSave={handleDishSaved}
-          categories={categories}
-          dishes={dishes}
-        />
-      )}
+      <MenuItemFormDialog
+        isOpen={isCreateDishDialogOpen}
+        onOpenChange={setIsCreateDishDialogOpen}
+        digitalMenuId={0} // Not needed for global dishes
+        menuItem={editingDish}
+        onSave={handleDishSaved}
+        categories={categories}
+        dishes={dishes}
+      />
 
       {/* Category Management Dialog */}
       {isCategoryDialogOpen && (

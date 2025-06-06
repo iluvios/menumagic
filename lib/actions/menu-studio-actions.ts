@@ -1,10 +1,9 @@
 "use server"
 
+import { sql } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
-import { sql } from "@/lib/db"
-import { uploadBase64ImageToBlob, put, del } from "@/lib/utils/blob-helpers"
-import type { DigitalMenu as DigitalMenuType } from "@/lib/types"
+import { put, del } from "@vercel/blob"
 
 interface Dish {
   id: number
@@ -573,7 +572,7 @@ export async function createDigitalMenu(data: { name: string; status: string }) 
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
-      return { success: false, error: "Authentication required to create digital menu." }
+      throw new Error("Authentication required to create digital menu.")
     }
 
     const result = await sql`
@@ -582,10 +581,10 @@ export async function createDigitalMenu(data: { name: string; status: string }) 
       RETURNING id, name, status, template_id, qr_code_url, created_at, updated_at
     `
     revalidatePath("/dashboard/menu-studio/digital-menu")
-    return { success: true, menu: result[0] as DigitalMenuType }
+    return result[0]
   } catch (error) {
     console.error("Error creating digital menu:", error)
-    return { success: false, error: "Failed to create digital menu." }
+    throw new Error("Failed to create digital menu.")
   }
 }
 
@@ -593,7 +592,7 @@ export async function updateDigitalMenu(id: number, data: { name?: string; statu
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
-      return { success: false, error: "Authentication required to update digital menu." }
+      throw new Error("Authentication required to update digital menu.")
     }
 
     const result = await sql`
@@ -607,10 +606,10 @@ export async function updateDigitalMenu(id: number, data: { name?: string; statu
       RETURNING id, name, status, template_id, qr_code_url, created_at, updated_at
     `
     revalidatePath("/dashboard/menu-studio/digital-menu")
-    return { success: true, menu: result[0] as DigitalMenuType }
+    return result[0]
   } catch (error) {
     console.error("Error updating digital menu:", error)
-    return { success: false, error: "Failed to update digital menu." }
+    throw new Error("Failed to update digital menu.")
   }
 }
 
@@ -662,9 +661,12 @@ export async function uploadQrCodeForDigitalMenu(menuId: number, base64Image: st
       throw new Error("Digital menu not found or does not belong to this restaurant.")
     }
 
-    // Use the helper function to upload to Vercel Blob
+    const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, "")
+    const buffer = Buffer.from(base64Data, "base64")
+    const blob = new Blob([buffer])
+
     const filename = `qr-codes/menu-${menuId}-${Date.now()}.png`
-    const url = await uploadBase64ImageToBlob(base64Image, filename)
+    const { url } = await put(filename, blob, { access: "public" })
 
     await sql`
       UPDATE digital_menus

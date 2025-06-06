@@ -10,19 +10,19 @@ import {
   deleteDigitalMenu,
   uploadQrCodeForDigitalMenu,
   getMenuItemsByMenuId,
+  getMenuCategoriesForDigitalMenu,
   getMenuTemplates,
-  deleteMenuItem, // Keep this for actual deletion
+  deleteMenuItem,
   getAllGlobalCategories,
   applyTemplateToMenu,
   getAllDishes,
-  updateDigitalMenu, // Import updateDigitalMenu for direct status change
+  updateMenuItemOrder,
 } from "@/lib/actions/menu-studio-actions"
 import { processMenuWithAI, addAiItemToMenu } from "@/lib/actions/ai-menu-actions"
-import type { DigitalMenu as DigitalMenuType } from "@/lib/types" // Ensure this import is correct
-import { Upload } from "lucide-react"
+import type { DigitalMenu as DigitalMenuType } from "@/lib/types"
+import { QrCode, Upload } from "lucide-react"
 import { DigitalMenuFormDialog } from "@/components/digital-menu-form-dialog"
 import { MenuItemFormDialog } from "@/components/menu-item-form-dialog"
-import { AddExistingDishDialog } from "@/components/add-existing-dish-dialog"
 import { MenuTemplatesSection } from "@/components/menu-templates-section"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
@@ -36,14 +36,30 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Loader2, PlusCircle, Trash2, Edit, CheckCircle, XCircle, AlertCircle, Library } from "lucide-react"
+import { Loader2, PlusCircle, Trash2, Edit, CheckCircle, XCircle, AlertCircle } from "lucide-react"
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
+import Image from "next/image"
 import { formatCurrency } from "@/lib/utils/client-formatters"
-import { MenuItemCard } from "@/components/menu-item-card" // Import the new component
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select" // Import Select components
-import { QRCodeGenerator } from "@/components/qr-code-generator" // Import the new QR component
+import { PersistentQRDisplay } from "@/components/persistent-qr-display"
 
-// Re-defining interfaces here for clarity, but ideally they come from lib/types.ts
-interface DigitalMenu extends DigitalMenuType {} // Use the imported type
+interface DigitalMenu {
+  id: number
+  name: string
+  status: string
+  template_id: number | null
+  qr_code_url: string | null
+}
+
 interface MenuItem {
   id: number
   digital_menu_id: number
@@ -103,18 +119,101 @@ interface ExtractedItemWithStatus {
 // Helper to delay execution (for throttling)
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+function SortableMenuItem({ item }: { item: MenuItem }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: item.id })
+  const { toast } = useToast()
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className="flex items-center justify-between rounded-md border p-4 shadow-sm bg-white hover:bg-gray-50"
+    >
+      <div className="flex items-center gap-4 flex-1">
+        {item.image_url && (
+          <Image
+            src={item.image_url || "/placeholder.svg"}
+            alt={item.name}
+            width={64}
+            height={64}
+            className="h-16 w-16 rounded-md object-cover"
+          />
+        )}
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold">{item.name}</h3>
+            <Badge variant="secondary">{item.category_name}</Badge>
+          </div>
+          <p className="text-sm text-gray-500 mt-1">{item.description}</p>
+          <p className="text-sm font-medium text-green-600 mt-1">{formatCurrency(item.price)}</p>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <MenuItemFormDialog
+          menuItem={item}
+          onSave={() => {
+            toast({
+              title: "Success",
+              description: "Menu item updated successfully.",
+            })
+          }}
+          categories={[]}
+          dishes={[]}
+        >
+          <Button variant="ghost" size="icon">
+            <Edit className="h-4 w-4" />
+          </Button>
+        </MenuItemFormDialog>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={async () => {
+            if (window.confirm(`Are you sure you want to remove "${item.name}"?`)) {
+              try {
+                await deleteMenuItem(item.id)
+                toast({
+                  title: "Success",
+                  description: "Menu item removed.",
+                })
+              } catch (error) {
+                toast({
+                  title: "Error",
+                  description: "Failed to remove menu item.",
+                  variant: "destructive",
+                })
+                console.error("Error deleting menu item:", error)
+              }
+            }
+          }}
+        >
+          <Trash2 className="h-4 w-4 text-red-500" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export default function DigitalMenuHubPage() {
   const { toast } = useToast()
   const [menus, setMenus] = useState<DigitalMenuType[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [isCreateMenuDialogOpen, setIsCreateMenuDialogOpen] = useState(false) // New state for create dialog
-  const [isDigitalMenuFormDialogOpen, setIsDigitalMenuFormDialogOpen] = useState(false) // Renamed for clarity
-  const [editingDigitalMenu, setEditingDigitalMenu] = useState<DigitalMenuType | null>(null) // Renamed for clarity
+  const [isFormDialogOpen, setIsFormDialogOpen] = useState(false)
+  const [editingMenu, setEditingMenu] = useState<DigitalMenuType | null>(null)
   const [isQrDialogOpen, setIsQrDialogOpen] = useState(false)
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null)
-  const [selectedMenu, setSelectedMenu] = useState<DigitalMenuType | null>(null) // Changed type to DigitalMenuType
+  const [selectedMenuForQr, setSelectedMenuForQr] = useState<DigitalMenuType | null>(null)
+  const [selectedMenu, setSelectedMenu] = useState<DigitalMenu | null>(null)
+  const [digitalMenus, setDigitalMenus] = useState<DigitalMenu[]>([])
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  const [menuCategories, setMenuCategories] = useState<DigitalMenuCategory[]>([])
   const [allGlobalCategories, setAllGlobalCategories] = useState<Category[]>([])
   const [allGlobalDishes, setAllGlobalDishes] = useState<Dish[]>([])
   const [isAiProcessing, setIsAiProcessing] = useState(false)
@@ -124,13 +223,14 @@ export default function DigitalMenuHubPage() {
   const [isAiReviewOpen, setIsAiReviewOpen] = useState(false)
   const [isAiUploadOpen, setIsAiUploadOpen] = useState(false)
   const [isAddingAll, setIsAddingAll] = useState(false)
-  const [isMenuItemFormDialogOpen, setIsMenuItemFormDialogOpen] = useState(false) // State for MenuItemFormDialog
-  const [isAddExistingDishDialogOpen, setIsAddExistingDishDialogOpen] = useState(false) // State for AddExistingDishDialog
-  const [editingMenuItem, setEditingMenuItem] = useState<MenuItem | null>(null) // State for editing specific menu item
-  const [deletingMenuItemId, setDeletingMenuItemId] = useState<number | null>(null) // State for deleting specific menu item
 
-  // Data states (kept for consistency, but not all are used directly in this component)
+  // Data states
+  const [globalCategories, setGlobalCategories] = useState<Category[]>([])
+  const [digitalMenuCategoriesState, setDigitalMenuCategoriesState] = useState<DigitalMenuCategory[]>([])
   const [templates, setTemplates] = useState<MenuTemplate[]>([])
+  const [dishes, setDishes] = useState<Dish[]>([])
+
+  const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor))
 
   // Initial data fetching
   useEffect(() => {
@@ -144,9 +244,12 @@ export default function DigitalMenuHubPage() {
   useEffect(() => {
     if (selectedMenu) {
       fetchMenuItems(selectedMenu.id)
+      fetchDigitalMenuCategories(selectedMenu.id)
       setQrCodeUrl(selectedMenu.qr_code_url)
+      setSelectedMenuForQr(null)
     } else {
       setMenuItems([])
+      setDigitalMenuCategoriesState([])
     }
   }, [selectedMenu])
 
@@ -163,21 +266,8 @@ export default function DigitalMenuHubPage() {
     try {
       const data = await getDigitalMenus()
       setMenus(data)
-      // If selectedMenu exists, find its updated version in the fetched data
-      // and update the state to ensure template_id is current.
-      if (selectedMenu) {
-        const updatedSelectedMenu = data.find((menu) => menu.id === selectedMenu.id)
-        if (updatedSelectedMenu) {
-          setSelectedMenu(updatedSelectedMenu)
-        } else if (data.length > 0) {
-          // If previously selected menu was deleted, select the first one
-          setSelectedMenu(data[0])
-        } else {
-          // No menus left
-          setSelectedMenu(null)
-        }
-      } else if (data.length > 0) {
-        // If no menu was selected, select the first one
+      setDigitalMenus(data)
+      if (data.length > 0 && !selectedMenu) {
         setSelectedMenu(data[0])
       }
     } catch (err: any) {
@@ -207,6 +297,34 @@ export default function DigitalMenuHubPage() {
     }
   }
 
+  const fetchMenuCategories = async (menuId: number) => {
+    try {
+      const categories = await getMenuCategoriesForDigitalMenu(menuId)
+      setMenuCategories(categories)
+      setDigitalMenuCategoriesState(categories)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch menu categories.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const fetchDigitalMenuCategories = async (menuId: number) => {
+    try {
+      const fetchedCategories = await getMenuCategoriesForDigitalMenu(menuId)
+      setDigitalMenuCategoriesState(fetchedCategories)
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to load menu categories.",
+        variant: "destructive",
+      })
+      setDigitalMenuCategoriesState([])
+    }
+  }
+
   const fetchTemplates = async () => {
     try {
       const fetchedTemplates = await getMenuTemplates()
@@ -225,6 +343,7 @@ export default function DigitalMenuHubPage() {
     try {
       const fetchedCategories = await getAllGlobalCategories()
       setAllGlobalCategories(fetchedCategories)
+      setGlobalCategories(fetchedCategories)
     } catch (error: any) {
       toast({
         title: "Error",
@@ -232,20 +351,22 @@ export default function DigitalMenuHubPage() {
         variant: "destructive",
       })
       setAllGlobalCategories([])
+      setGlobalCategories([])
     }
   }
 
   const fetchGlobalData = async () => {
-    // This function fetches both categories and dishes for MenuItemFormDialog
     try {
       const categories = await getAllGlobalCategories()
       setAllGlobalCategories(categories)
+      setGlobalCategories(categories)
       const dishes = await getAllDishes()
       setAllGlobalDishes(dishes)
+      setDishes(dishes)
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to fetch global data for menu items.",
+        description: "Failed to fetch global data.",
         variant: "destructive",
       })
     }
@@ -254,14 +375,14 @@ export default function DigitalMenuHubPage() {
   const fetchDishes = async () => {
     try {
       const items = await getAllDishes()
-      setAllGlobalDishes(items) // Use allGlobalDishes for the form
+      setDishes(items)
     } catch (error: any) {
       toast({
         title: "Error",
         description: error.message || "Failed to load dishes.",
         variant: "destructive",
       })
-      setAllGlobalDishes([])
+      setDishes([])
     }
   }
 
@@ -275,23 +396,12 @@ export default function DigitalMenuHubPage() {
       return
     }
     try {
-      const result = await applyTemplateToMenu(selectedMenu.id, templateId)
-      if (result.success) {
-        toast({
-          title: "Success",
-          description: "Template applied successfully.",
-        })
-        // Explicitly update the selected menu's template_id for immediate UI feedback
-        setSelectedMenu((prev) => (prev ? { ...prev, template_id: templateId } : null))
-        // Re-fetch all menus to ensure the main menu list is also up-to-date
-        fetchMenus()
-      } else {
-        toast({
-          title: "Error",
-          description: result.error || "Failed to apply template.",
-          variant: "destructive",
-        })
-      }
+      await applyTemplateToMenu(selectedMenu.id, templateId)
+      toast({
+        title: "Success",
+        description: "Template applied successfully.",
+      })
+      fetchMenus()
     } catch (error: any) {
       toast({
         title: "Error",
@@ -487,29 +597,100 @@ export default function DigitalMenuHubPage() {
     })
 
     fetchMenuItems(selectedMenu.id)
+    fetchMenuCategories(selectedMenu.id)
     setIsAddingAll(false)
   }
 
-  const handleQrGenerated = async (base64Image: string) => {
-    if (!selectedMenu) return
+  const handleGenerateQrCode = async () => {
+    if (!selectedMenu) {
+      toast({
+        title: "Error",
+        description: "Please select a menu first.",
+        variant: "destructive",
+      })
+      return
+    }
 
+    const menuUrl = `${window.location.origin}/menu/${selectedMenu.id}`
     try {
-      const result = await uploadQrCodeForDigitalMenu(selectedMenu.id, base64Image)
-      if (result.success) {
-        setQrCodeUrl(result.qrCodeUrl)
-        setSelectedMenu((prev) => (prev ? { ...prev, qr_code_url: result.qrCodeUrl } : null))
+      const response = await fetch("/api/generate-qr", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ url: menuUrl }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to generate QR code.")
+      }
+
+      const { qrCodeBase64 } = await response.json()
+
+      const uploadResult = await uploadQrCodeForDigitalMenu(selectedMenu.id, qrCodeBase64)
+      if (uploadResult.success) {
+        setQrCodeUrl(uploadResult.qrCodeUrl)
         toast({
           title: "Success",
-          description: "QR code saved to menu!",
+          description: "QR code generated and uploaded!",
+        })
+        setSelectedMenu((prev) => (prev ? { ...prev, qr_code_url: uploadResult.qrCodeUrl } : null))
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to upload QR code.",
+          variant: "destructive",
         })
       }
     } catch (error) {
-      console.error("Error saving QR code:", error)
+      console.error("Error generating or uploading QR code:", error)
       toast({
         title: "Error",
-        description: "Failed to save QR code.",
+        description: "Failed to generate QR code.",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (active.id === over?.id) {
+      return
+    }
+
+    const oldIndex = menuItems.findIndex((item) => item.id === active.id)
+    const newIndex = menuItems.findIndex((item) => item.id === over?.id)
+
+    if (oldIndex === -1 || newIndex === -1) return
+
+    const newOrder = Array.from(menuItems)
+    const [movedItem] = newOrder.splice(oldIndex, 1)
+    newOrder.splice(newIndex, 0, movedItem)
+
+    setMenuItems(newOrder)
+
+    const updates = newOrder.map((item, index) => ({
+      id: item.id,
+      order_index: index,
+    }))
+
+    try {
+      await updateMenuItemOrder(updates)
+      toast({
+        title: "Success",
+        description: "Menu item order updated.",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update menu item order.",
+        variant: "destructive",
+      })
+      console.error("Error updating menu item order:", error)
+      if (selectedMenu) {
+        fetchMenuItems(selectedMenu.id)
+      }
     }
   }
 
@@ -547,108 +728,58 @@ export default function DigitalMenuHubPage() {
     }
   }
 
-  const handleEditDigitalMenu = (menu: DigitalMenuType) => {
-    setEditingDigitalMenu(menu)
-    setIsDigitalMenuFormDialogOpen(true)
-  }
-
-  const handleDeleteDigitalMenu = async (menu: DigitalMenuType) => {
-    if (!window.confirm(`Are you sure you want to delete "${menu.name}"?`)) return
-
-    try {
-      await deleteDigitalMenu(menu.id)
-      toast({
-        title: "Success",
-        description: "Digital menu deleted.",
-      })
-      setSelectedMenu(null) // Deselect the deleted menu
-      fetchMenus() // Refresh the list
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to delete digital menu.",
-        variant: "destructive",
-      })
-      console.error("Error deleting menu:", error)
-    }
-  }
-
-  const handleEditMenuItem = (item: MenuItem) => {
-    setEditingMenuItem(item)
-    setIsMenuItemFormDialogOpen(true)
-  }
-
-  const handleDeleteMenuItem = async (itemId: number, itemName: string) => {
-    if (!window.confirm(`Are you sure you want to remove "${itemName}" from this menu?`)) return
-
-    setDeletingMenuItemId(itemId) // Set deleting state for this item
-
-    try {
-      await deleteMenuItem(itemId)
-      toast({
-        title: "Success",
-        description: "Menu item removed.",
-      })
-      fetchMenuItems(selectedMenu!.id) // Refresh menu items for the current menu
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to remove menu item.",
-        variant: "destructive",
-      })
-      console.error("Error deleting menu item:", error)
-    } finally {
-      setDeletingMenuItemId(null) // Clear deleting state
-    }
-  }
-
   return (
     <TooltipProvider>
       <div className="flex h-full flex-col">
         <div className="flex items-center justify-between p-4 bg-white border-b">
           <h1 className="text-2xl font-bold">Digital Menu Studio</h1>
-          {/* This button is for general "New Menu" at the top right of the page */}
-          <Button
-            onClick={() => {
-              setEditingDigitalMenu(null) // Ensure it's for creation
-              setIsCreateMenuDialogOpen(true)
+          <DigitalMenuFormDialog
+            onSave={() => {
+              fetchMenus()
+              toast({
+                title: "Success",
+                description: "Digital menu saved successfully.",
+              })
             }}
           >
-            <PlusCircle className="mr-2 h-4 w-4" /> New Menu
-          </Button>
+            <Button>
+              <PlusCircle className="mr-2 h-4 w-4" /> New Menu
+            </Button>
+          </DigitalMenuFormDialog>
         </div>
 
         <div className="flex-1 p-4 space-y-6">
           {/* 1. Menus as Cards */}
           <Card>
-            <CardHeader className="flex items-center justify-between">
-              <div className="space-y-1">
-                <CardTitle>Your Menus</CardTitle>
-                <CardDescription>Select a menu to manage or create a new one.</CardDescription>
-              </div>
-              {/* This is the "Add New Menu" button specifically for this section */}
-              <Button
-                onClick={() => {
-                  setEditingDigitalMenu(null) // Ensure it's for creation
-                  setIsCreateMenuDialogOpen(true)
-                }}
-              >
-                <PlusCircle className="mr-2 h-4 w-4" /> Add New Menu
-              </Button>
+            <CardHeader>
+              <CardTitle>Your Menus</CardTitle>
+              <CardDescription>Select a menu to manage or create a new one.</CardDescription>
             </CardHeader>
             <CardContent>
               {loading ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
-              ) : menus.length === 0 ? (
+              ) : digitalMenus.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-gray-500 mb-4">No menus found. Create your first menu to get started.</p>
-                  {/* The "Add New Menu" button in the header now covers this case */}
+                  <DigitalMenuFormDialog
+                    onSave={() => {
+                      fetchMenus()
+                      toast({
+                        title: "Success",
+                        description: "Digital menu created successfully.",
+                      })
+                    }}
+                  >
+                    <Button>
+                      <PlusCircle className="mr-2 h-4 w-4" /> Create First Menu
+                    </Button>
+                  </DigitalMenuFormDialog>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {menus.map((menu) => (
+                  {digitalMenus.map((menu) => (
                     <Card
                       key={menu.id}
                       className={`cursor-pointer transition-all hover:shadow-md ${
@@ -674,26 +805,26 @@ export default function DigitalMenuHubPage() {
                           >
                             Preview
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation() // Prevent card selection when clicking edit button
-                              handleEditDigitalMenu(menu)
+                          <DigitalMenuFormDialog
+                            digitalMenu={menu}
+                            onSave={() => {
+                              fetchMenus()
+                              toast({
+                                title: "Success",
+                                description: "Menu updated successfully.",
+                              })
                             }}
                           >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation() // Prevent card selection when clicking delete button
-                              handleDeleteDigitalMenu(menu)
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                              }}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          </DigitalMenuFormDialog>
                         </div>
                       </CardContent>
                     </Card>
@@ -705,12 +836,12 @@ export default function DigitalMenuHubPage() {
 
           {selectedMenu && (
             <>
-              {/* 2. Menu Items (Dishes List) */}
+              {/* 2. Menu Items */}
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
                   <div>
                     <CardTitle>Menu Items</CardTitle>
-                    <CardDescription>Add and manage dishes for this menu.</CardDescription>
+                    <CardDescription>Add and manage dishes for this menu. Drag and drop to reorder.</CardDescription>
                   </div>
                   <div className="flex gap-2">
                     <Button variant="outline" onClick={() => setIsAiUploadOpen(true)} disabled={isAiProcessing}>
@@ -724,17 +855,23 @@ export default function DigitalMenuHubPage() {
                         </>
                       )}
                     </Button>
-                    <Button variant="outline" onClick={() => setIsAddExistingDishDialogOpen(true)}>
-                      <Library className="mr-2 h-4 w-4" /> Add Existing
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        setEditingMenuItem(null) // Ensure we're adding a new item
-                        setIsMenuItemFormDialogOpen(true)
+                    <MenuItemFormDialog
+                      digitalMenuId={selectedMenu.id}
+                      onSave={() => {
+                        toast({
+                          title: "Success",
+                          description: "Menu item added successfully.",
+                        })
+                        fetchMenuItems(selectedMenu.id)
+                        fetchGlobalData()
                       }}
+                      categories={allGlobalCategories}
+                      dishes={allGlobalDishes}
                     >
-                      <PlusCircle className="mr-2 h-4 w-4" /> Create New
-                    </Button>
+                      <Button>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Add Item
+                      </Button>
+                    </MenuItemFormDialog>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -742,17 +879,15 @@ export default function DigitalMenuHubPage() {
                   {menuItems.length === 0 ? (
                     <p className="text-center text-gray-500 py-8">No items added to this menu yet.</p>
                   ) : (
-                    <div className="space-y-2">
-                      {menuItems.map((item) => (
-                        <MenuItemCard
-                          key={item.id}
-                          item={item}
-                          onEdit={handleEditMenuItem}
-                          onDelete={handleDeleteMenuItem}
-                          isDeleting={deletingMenuItemId === item.id}
-                        />
-                      ))}
-                    </div>
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                      <SortableContext items={menuItems.map((item) => item.id)} strategy={verticalListSortingStrategy}>
+                        <div className="space-y-2">
+                          {menuItems.map((item) => (
+                            <SortableMenuItem key={item.id} item={item} />
+                          ))}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
                   )}
                 </CardContent>
               </Card>
@@ -764,18 +899,21 @@ export default function DigitalMenuHubPage() {
                 onApplyTemplate={handleApplyTemplate}
               />
 
-              {/* 4. QR Code - Updated with new component */}
+              {/* 4. QR Code */}
               <Card>
                 <CardHeader>
                   <CardTitle>QR Code</CardTitle>
-                  <CardDescription>Generate and share a QR code for your digital menu.</CardDescription>
+                  <CardDescription>Generate and display a QR code for your digital menu.</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <QRCodeGenerator
-                    menuId={selectedMenu.id}
-                    menuName={selectedMenu.name}
-                    onQrGenerated={handleQrGenerated}
-                  />
+                <CardContent className="flex flex-col md:flex-row items-center gap-6">
+                  <Button onClick={handleGenerateQrCode} className="w-full md:w-auto">
+                    <QrCode className="mr-2 h-4 w-4" /> Generate QR Code
+                  </Button>
+                  {qrCodeUrl && (
+                    <div className="flex-1">
+                      <PersistentQRDisplay qrCodeUrl={qrCodeUrl} menuId={selectedMenu.id} />
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -793,46 +931,24 @@ export default function DigitalMenuHubPage() {
                     </div>
                     <div>
                       <Label>Status</Label>
-                      <Select
-                        value={selectedMenu.status}
-                        onValueChange={async (newStatus) => {
-                          if (!selectedMenu) return
-                          try {
-                            // Ensure to send both name and new status
-                            const result = await updateDigitalMenu(selectedMenu.id, {
-                              name: selectedMenu.name,
-                              status: newStatus as "active" | "inactive",
-                            })
-                            if (result.success) {
-                              toast({ title: "Success", description: "Menu status updated." })
-                              setSelectedMenu((prev) =>
-                                prev ? { ...prev, status: newStatus as "active" | "inactive" } : null,
-                              )
-                              fetchMenus() // Re-fetch all menus to update the card list as well
-                            } else {
-                              throw new Error(result.error || "Failed to update menu status.")
-                            }
-                          } catch (error: any) {
-                            toast({
-                              title: "Error",
-                              description: error.message || "Failed to update status.",
-                              variant: "destructive",
-                            })
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Select status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="active">Active</SelectItem>
-                          <SelectItem value="inactive">Inactive</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <Input value={selectedMenu.status} readOnly />
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    {/* Removed redundant Edit Menu button from here */}
+                    <DigitalMenuFormDialog
+                      digitalMenu={selectedMenu}
+                      onSave={() => {
+                        fetchMenus()
+                        toast({
+                          title: "Success",
+                          description: "Digital menu updated successfully.",
+                        })
+                      }}
+                    >
+                      <Button variant="outline" className="flex-1">
+                        <Edit className="mr-2 h-4 w-4" /> Edit Menu
+                      </Button>
+                    </DigitalMenuFormDialog>
                     <Button
                       variant="destructive"
                       className="flex-1"
@@ -961,6 +1077,11 @@ export default function DigitalMenuHubPage() {
                           <AlertCircle className="mr-2 h-4 w-4" /> Exists
                         </Button>
                       )}
+                      {item.status === "error" && (
+                        <Button variant="outline" onClick={() => handleAddExtractedItemToMenu(item, index)}>
+                          Retry
+                        </Button>
+                      )}
                     </div>
                   </Card>
                 ))
@@ -973,100 +1094,6 @@ export default function DigitalMenuHubPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-
-        {/* MenuItemFormDialog for Add/Edit */}
-        {isMenuItemFormDialogOpen && selectedMenu && (
-          <MenuItemFormDialog
-            isOpen={isMenuItemFormDialogOpen}
-            onOpenChange={setIsMenuItemFormDialogOpen}
-            digitalMenuId={selectedMenu.id}
-            menuItem={editingMenuItem} // Pass the item for editing
-            onSave={() => {
-              toast({
-                title: "Success",
-                description: "Menu item saved successfully.",
-              })
-              setIsMenuItemFormDialogOpen(false)
-              setEditingMenuItem(null)
-              fetchMenuItems(selectedMenu.id) // Refresh the list
-            }}
-            categories={allGlobalCategories}
-            dishes={allGlobalDishes}
-          />
-        )}
-
-        {/* AddExistingDishDialog */}
-        {isAddExistingDishDialogOpen && selectedMenu && (
-          <AddExistingDishDialog
-            isOpen={isAddExistingDishDialogOpen}
-            onOpenChange={setIsAddExistingDishDialogOpen}
-            digitalMenuId={selectedMenu.id}
-            dishes={allGlobalDishes}
-            onSave={() => {
-              fetchMenuItems(selectedMenu.id) // Refresh the list
-              setIsAddExistingDishDialogOpen(false)
-            }}
-          />
-        )}
-
-        {/* DigitalMenuFormDialog for Add New Digital Menu (controlled) */}
-        {isCreateMenuDialogOpen && (
-          <DigitalMenuFormDialog
-            isOpen={isCreateMenuDialogOpen}
-            onOpenChange={(open) => {
-              console.log("DigitalMenuHubPage: Create dialog onOpenChange called with open:", open)
-              setIsCreateMenuDialogOpen(open)
-              if (!open) {
-                setEditingDigitalMenu(null)
-              }
-            }}
-            digitalMenu={null} // Explicitly null for creation
-            onSave={async (newMenu) => {
-              console.log("DigitalMenuHubPage: Create dialog onSave called with newMenu:", newMenu)
-              setIsCreateMenuDialogOpen(false) // Explicitly close the dialog FIRST
-              toast({
-                title: "Success",
-                description: "Digital menu created successfully.",
-              })
-              if (newMenu) {
-                // Optimistically add the new menu to the list and select it
-                setMenus((prevMenus) => [...prevMenus, newMenu])
-                setSelectedMenu(newMenu)
-              }
-              await fetchMenus() // Re-fetch all menus to ensure full consistency
-              console.log("DigitalMenuHubPage: Create dialog onSave finished.")
-            }}
-          />
-        )}
-
-        {/* DigitalMenuFormDialog for Edit Digital Menu (controlled) */}
-        {isDigitalMenuFormDialogOpen && (
-          <DigitalMenuFormDialog
-            isOpen={isDigitalMenuFormDialogOpen}
-            onOpenChange={(open) => {
-              console.log("DigitalMenuHubPage: Edit dialog onOpenChange called with open:", open)
-              setIsDigitalMenuFormDialogOpen(open)
-              if (!open) {
-                setEditingDigitalMenu(null)
-              }
-            }}
-            digitalMenu={editingDigitalMenu}
-            onSave={async (updatedMenu) => {
-              console.log("DigitalMenuHubPage: Edit dialog onSave called with updatedMenu:", updatedMenu)
-              setIsDigitalMenuFormDialogOpen(false) // Explicitly close the dialog FIRST
-              setEditingDigitalMenu(null) // Clear editing state
-              toast({
-                title: "Success",
-                description: "Digital menu updated successfully.",
-              })
-              if (updatedMenu) {
-                setSelectedMenu(updatedMenu) // Update selected menu with fresh data
-              }
-              await fetchMenus() // Re-fetch to update the list
-              console.log("DigitalMenuHubPage: Edit dialog onSave finished.")
-            }}
-          />
-        )}
       </div>
     </TooltipProvider>
   )

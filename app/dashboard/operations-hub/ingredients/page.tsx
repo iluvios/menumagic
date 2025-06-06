@@ -1,257 +1,352 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
+import type React from "react"
+
+import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useToast } from "@/hooks/use-toast"
-import { getIngredients, deleteIngredient } from "@/lib/actions/ingredient-actions"
-import { PlusCircle, Edit, Trash2, Loader2, Search, Package } from "lucide-react"
-import { IngredientFormDialog } from "@/components/ingredient-form-dialog"
+import { getIngredients, createIngredient, updateIngredient, deleteIngredient } from "@/lib/actions/ingredient-actions"
+import { getCategoriesByType } from "@/lib/actions/category-actions" // Corrected import
+import { formatCurrency } from "@/lib/utils/formatters" // Corrected import
+import { Plus, Edit, Trash2, Package, XCircle, Search } from "lucide-react"
 
 interface Ingredient {
   id: number
   name: string
+  description: string
   unit_of_measure: string
-  current_stock?: number
-  cost_per_unit?: number
+  cost_per_unit: number
+  category_id: number
+  category_name?: string
   supplier_id?: number
   supplier_name?: string
-  category?: string
+  current_stock?: number // Added for display
+  low_stock_threshold?: number // Added for display
 }
 
-export default function IngredientsPage() {
+interface Category {
+  id: number
+  name: string
+}
+
+export default function IngredientManagementPage() {
   const { toast } = useToast()
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
-  const [loading, setLoading] = useState(true)
+  const [categories, setCategories] = useState<Category[]>([])
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [currentIngredient, setCurrentIngredient] = useState<Ingredient | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
-  const [isCreateIngredientDialogOpen, setIsCreateIngredientDialogOpen] = useState(false)
-  const [editingIngredient, setEditingIngredient] = useState<Ingredient | null>(null)
-  const [deletingIngredientId, setDeletingIngredientId] = useState<number | null>(null)
+  const [filterCategory, setFilterCategory] = useState("all")
 
   useEffect(() => {
-    fetchData()
+    fetchIngredients()
+    fetchCategories()
   }, [])
 
-  const fetchData = async () => {
-    setLoading(true)
+  const fetchIngredients = async () => {
+    const data = await getIngredients()
+    setIngredients(data)
+  }
+
+  const fetchCategories = async () => {
+    const data = await getCategoriesByType("ingredient")
+    setCategories(data)
+  }
+
+  const handleCreateUpdateIngredient = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formData = new FormData(event.currentTarget)
+    const name = formData.get("name") as string
+    const description = formData.get("description") as string
+    const unit_of_measure = formData.get("unit_of_measure") as string
+    const cost_per_unit = Number.parseFloat(formData.get("cost_per_unit") as string)
+    const category_id = Number.parseInt(formData.get("category_id") as string)
+
+    const data = {
+      name,
+      description,
+      unit_of_measure,
+      cost_per_unit,
+      category_id,
+    }
+
     try {
-      const ingredientsData = await getIngredients()
-      setIngredients(ingredientsData)
+      if (currentIngredient?.id) {
+        await updateIngredient(currentIngredient.id, data)
+        toast({ title: "Ingrediente Actualizado", description: "El ingrediente ha sido actualizado exitosamente." })
+      } else {
+        await createIngredient(data)
+        toast({ title: "Ingrediente Creado", description: "El nuevo ingrediente ha sido creado exitosamente." })
+      }
+      fetchIngredients()
+      setIsDialogOpen(false)
+      setCurrentIngredient(null)
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to load ingredients.",
+        description: error.message || "No se pudo guardar el ingrediente.",
         variant: "destructive",
       })
-    } finally {
-      setLoading(false)
     }
   }
 
-  // Filter ingredients based on search term
-  const filteredIngredients = useMemo(() => {
-    if (!searchTerm) return ingredients
+  const handleDeleteIngredient = async (id: number) => {
+    if (confirm("¿Estás seguro de que quieres eliminar este ingrediente?")) {
+      try {
+        await deleteIngredient(id)
+        toast({ title: "Ingrediente Eliminado", description: "El ingrediente ha sido eliminado." })
+        fetchIngredients()
+      } catch (error: any) {
+        toast({
+          title: "Error",
+          description: error.message || "No se pudo eliminar el ingrediente.",
+          variant: "destructive",
+        })
+      }
+    }
+  }
 
-    return ingredients.filter(
+  const filteredIngredients = useMemo(() => {
+    let filtered = ingredients.filter(
       (ingredient) =>
         ingredient.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        ingredient.unit_of_measure.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        ingredient.supplier_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        ingredient.category?.toLowerCase().includes(searchTerm.toLowerCase()),
+        ingredient.description.toLowerCase().includes(searchTerm.toLowerCase()),
     )
-  }, [ingredients, searchTerm])
 
-  const handleEditIngredient = (ingredient: Ingredient) => {
-    setEditingIngredient(ingredient)
-    setIsCreateIngredientDialogOpen(true)
-  }
-
-  const handleDeleteIngredient = async (ingredientId: number, ingredientName: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${ingredientName}"?`)) return
-
-    setDeletingIngredientId(ingredientId)
-
-    try {
-      await deleteIngredient(ingredientId)
-      toast({
-        title: "Success",
-        description: "Ingredient deleted successfully.",
-      })
-      fetchData() // Refresh the list
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete ingredient.",
-        variant: "destructive",
-      })
-    } finally {
-      setDeletingIngredientId(null)
+    if (filterCategory !== "all") {
+      filtered = filtered.filter((ingredient) => ingredient.category_id === Number.parseInt(filterCategory))
     }
-  }
 
-  const handleIngredientSaved = () => {
-    setIsCreateIngredientDialogOpen(false)
-    setEditingIngredient(null)
-    fetchData() // Refresh the list
-  }
-
-  if (loading) {
-    return (
-      <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between p-4 bg-white border-b">
-          <h1 className="text-2xl font-bold">Ingredients Management</h1>
-        </div>
-        <div className="flex-1 p-4">
-          <div className="flex justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin" />
-          </div>
-        </div>
-      </div>
-    )
-  }
+    return filtered
+  }, [ingredients, searchTerm, filterCategory])
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between p-4 bg-white border-b">
-        <div>
-          <h1 className="text-2xl font-bold">Ingredients Management</h1>
-          <p className="text-gray-600">Manage your inventory ingredients and their details.</p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            onClick={() => {
-              setEditingIngredient(null)
-              setIsCreateIngredientDialogOpen(true)
-            }}
-          >
-            <PlusCircle className="mr-2 h-4 w-4" /> Add New Ingredient
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex-1 p-4">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>All Ingredients ({filteredIngredients.length})</CardTitle>
-                <CardDescription>Manage your restaurant's ingredient inventory and costs.</CardDescription>
-              </div>
-              <div className="relative w-72">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-                <Input
-                  placeholder="Search ingredients..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {filteredIngredients.length === 0 ? (
-              <div className="text-center py-8">
-                {searchTerm ? (
-                  <p className="text-gray-500 mb-4">No ingredients found matching "{searchTerm}".</p>
-                ) : (
-                  <p className="text-gray-500 mb-4">
-                    No ingredients found. Create your first ingredient to get started.
-                  </p>
-                )}
-                {!searchTerm && (
-                  <Button
-                    onClick={() => {
-                      setEditingIngredient(null)
-                      setIsCreateIngredientDialogOpen(true)
-                    }}
-                  >
-                    <PlusCircle className="mr-2 h-4 w-4" /> Add New Ingredient
+    <TooltipProvider>
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-neutral-900">Gestión de Ingredientes</h1>
+            <p className="text-neutral-600">Centraliza y gestiona todos los ingredientes de tu restaurante.</p>
+          </div>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button
+                className="bg-warm-500 hover:bg-warm-600 text-white shadow-md whitespace-nowrap"
+                onClick={() => setCurrentIngredient(null)}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Nuevo Ingrediente
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[600px] bg-white p-6 rounded-lg shadow-xl">
+              <DialogHeader>
+                <DialogTitle>{currentIngredient ? "Editar Ingrediente" : "Crear Nuevo Ingrediente"}</DialogTitle>
+                <DialogDescription>
+                  {currentIngredient
+                    ? "Realiza cambios en este ingrediente."
+                    : "Añade un nuevo ingrediente a tu inventario."}
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleCreateUpdateIngredient} className="grid gap-4 py-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="name" className="text-right">
+                    Nombre
+                  </Label>
+                  <Input
+                    id="name"
+                    name="name"
+                    defaultValue={currentIngredient?.name || ""}
+                    className="col-span-3"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="description" className="text-right">
+                    Descripción
+                  </Label>
+                  <Textarea
+                    id="description"
+                    name="description"
+                    defaultValue={currentIngredient?.description || ""}
+                    className="col-span-3"
+                    rows={3}
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="unit_of_measure" className="text-right">
+                    Unidad de Medida
+                  </Label>
+                  <Input
+                    id="unit_of_measure"
+                    name="unit_of_measure"
+                    defaultValue={currentIngredient?.unit_of_measure || ""}
+                    className="col-span-3"
+                    placeholder="Ej: kg, litros, unidades"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="cost_per_unit" className="text-right">
+                    Costo por Unidad
+                  </Label>
+                  <Input
+                    id="cost_per_unit"
+                    name="cost_per_unit"
+                    type="number"
+                    step="0.01"
+                    defaultValue={currentIngredient?.cost_per_unit || ""}
+                    className="col-span-3"
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="category_id" className="text-right">
+                    Categoría
+                  </Label>
+                  <Select name="category_id" defaultValue={currentIngredient?.category_id?.toString() || ""} required>
+                    <SelectTrigger className="col-span-3">
+                      <SelectValue placeholder="Selecciona una categoría" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {categories.map((category) => (
+                        <SelectItem key={category.id} value={category.id.toString()}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <DialogFooter>
+                  <Button type="submit" className="bg-warm-500 hover:bg-warm-600 text-white">
+                    {currentIngredient ? "Guardar cambios" : "Crear Ingrediente"}
                   </Button>
-                )}
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-4 mb-6">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
+            <Input
+              placeholder="Buscar ingredientes..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9 pr-3 py-2 border border-neutral-300 rounded-md w-full"
+            />
+          </div>
+          <Select value={filterCategory} onValueChange={setFilterCategory}>
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectValue placeholder="Filtrar por categoría" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las categorías</SelectItem>
+              {categories.map((category) => (
+                <SelectItem key={category.id} value={category.id.toString()}>
+                  {category.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <Card className="shadow-lg border-neutral-200">
+          <CardHeader>
+            <CardTitle className="text-xl font-semibold text-neutral-800">Lista de Ingredientes</CardTitle>
+            <CardDescription>{filteredIngredients.length} ingredientes encontrados.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 max-h-[60vh] overflow-y-auto">
+            {filteredIngredients.length === 0 ? (
+              <div className="text-center py-12 text-neutral-500">
+                <XCircle className="mx-auto h-16 w-16 mb-4 text-neutral-400" />
+                <p className="text-lg">No se encontraron ingredientes.</p>
+                <p className="text-sm">Intenta ajustar tus filtros o añade un nuevo ingrediente.</p>
               </div>
             ) : (
-              <div className="space-y-2">
-                {filteredIngredients.map((ingredient) => (
-                  <div
-                    key={ingredient.id}
-                    className="flex items-center justify-between rounded-md border p-4 shadow-sm bg-white"
-                  >
-                    <div className="flex items-center gap-4 flex-1">
-                      <div className="h-16 w-16 rounded-md bg-gray-100 flex items-center justify-center">
-                        <Package className="h-8 w-8 text-gray-400" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold">{ingredient.name}</h3>
-                          <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
-                            {ingredient.unit_of_measure}
-                          </span>
-                          {ingredient.category && (
-                            <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
-                              {ingredient.category}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-4 mt-1">
-                          {ingredient.current_stock !== undefined && (
-                            <p className="text-sm text-gray-500">
-                              Stock: <span className="font-medium">{ingredient.current_stock}</span>
-                            </p>
-                          )}
-                          {ingredient.cost_per_unit !== undefined && (
-                            <p className="text-sm text-green-600">
-                              Cost: <span className="font-medium">${ingredient.cost_per_unit.toFixed(2)}</span>
-                            </p>
-                          )}
-                          {ingredient.supplier_name && (
-                            <p className="text-sm text-gray-500">
-                              Supplier: <span className="font-medium">{ingredient.supplier_name}</span>
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEditIngredient(ingredient)}
-                        aria-label={`Edit ${ingredient.name}`}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDeleteIngredient(ingredient.id, ingredient.name)}
-                        disabled={deletingIngredientId === ingredient.id}
-                        aria-label={`Delete ${ingredient.name}`}
-                      >
-                        {deletingIngredientId === ingredient.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        )}
-                      </Button>
+              filteredIngredients.map((ingredient) => (
+                <Card
+                  key={ingredient.id}
+                  className="flex items-center justify-between p-3 shadow-sm hover:shadow-md transition-shadow bg-white"
+                >
+                  <div className="flex items-center space-x-3">
+                    <Package className="h-8 w-8 text-neutral-500" />
+                    <div>
+                      <h3 className="font-medium text-neutral-800">{ingredient.name}</h3>
+                      <p className="text-xs text-neutral-500 max-w-xs truncate" title={ingredient.description}>
+                        {ingredient.description || "Sin descripción"}
+                      </p>
+                      <p className="text-xs text-neutral-500">Categoría: {ingredient.category_name || "N/A"}</p>
+                      {ingredient.current_stock !== undefined && (
+                        <p className="text-xs text-neutral-500">
+                          Stock: {ingredient.current_stock} {ingredient.unit_of_measure}
+                          {ingredient.low_stock_threshold !== undefined &&
+                            ingredient.current_stock <= ingredient.low_stock_threshold && (
+                              <span className="text-red-500 ml-1">(Bajo stock)</span>
+                            )}
+                        </p>
+                      )}
                     </div>
                   </div>
-                ))}
-              </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="font-semibold text-neutral-900 text-sm">
+                      {formatCurrency(ingredient.cost_per_unit)} / {ingredient.unit_of_measure}
+                    </span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => {
+                            setCurrentIngredient(ingredient)
+                            setIsDialogOpen(true)
+                          }}
+                        >
+                          <Edit className="h-4 w-4 text-neutral-500 hover:text-warm-600" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Editar Ingrediente</p>
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleDeleteIngredient(ingredient.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-red-500 hover:text-red-600" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Eliminar Ingrediente</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                </Card>
+              ))
             )}
           </CardContent>
         </Card>
       </div>
-
-      {/* Ingredient Form Dialog */}
-      {isCreateIngredientDialogOpen && (
-        <IngredientFormDialog
-          isOpen={isCreateIngredientDialogOpen}
-          onOpenChange={setIsCreateIngredientDialogOpen}
-          ingredient={editingIngredient}
-          onSave={handleIngredientSaved}
-        />
-      )}
-    </div>
+    </TooltipProvider>
   )
 }

@@ -3,7 +3,7 @@
 import { sql } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
-import { getReusableMenuItems } from "./reusable-menu-item-actions" // Corrected import path
+import { getReusableMenuItems } from "./reusable-menu-item-actions" // This import is correct
 
 interface Recipe {
   id: number
