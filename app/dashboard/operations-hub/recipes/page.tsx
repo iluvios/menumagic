@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/hooks/use-toast"
-import { getAllDishes, getAllGlobalCategories, deleteDish } from "@/lib/actions/menu-studio-actions"
+import { getAllGlobalCategories, deleteDish } from "@/lib/actions/menu-studio-actions"
+import { getReusableMenuItemsForRecipesPage } from "@/lib/actions/recipe-actions"
 import { PlusCircle, Edit, Trash2, Loader2, Settings, Search, ChefHat } from "lucide-react"
 import { formatCurrency } from "@/lib/utils/client-formatters"
 import { MenuItemFormDialog } from "@/components/menu-item-form-dialog"
@@ -51,7 +52,10 @@ export default function RecipesPage() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const [dishesData, categoriesData] = await Promise.all([getAllDishes(), getAllGlobalCategories()])
+      const [dishesData, categoriesData] = await Promise.all([
+        getReusableMenuItemsForRecipesPage(),
+        getAllGlobalCategories(),
+      ])
       setDishes(dishesData)
       setCategories(categoriesData)
     } catch (error: any) {
