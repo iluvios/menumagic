@@ -1,9 +1,6 @@
 "use client"
 
-import type React from "react"
-
 import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -12,341 +9,235 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { useToast } from "@/hooks/use-toast"
-import {
-  getIngredientsForReusableDish,
-  addReusableDishIngredient,
-  updateReusableDishIngredient,
-  removeReusableDishIngredient,
-} from "@/lib/actions/recipe-actions"
-import { getIngredients } from "@/lib/actions/ingredient-actions"
-import { Edit, Trash2, XCircle, Plus } from "lucide-react"
-
-interface ReusableDishIngredient {
-  id: number
-  reusable_menu_item_id: number
-  ingredient_id: number
-  ingredient_name: string
-  quantity_used: number
-  unit_used: string
-  cost_per_unit: number
-  total_cost: number
-  ingredient_base_unit: string
-}
-
-interface Ingredient {
-  id: number
-  name: string
-  unit_of_measure: string
-  current_stock?: number
-}
+import { toast } from "@/components/ui/use-toast"
+import { Loader2, Plus, Trash2 } from "lucide-react"
+import { getIngredientsForDish, updateDishIngredients } from "@/lib/actions/recipe-actions"
 
 interface DishRecipeDialogProps {
   isOpen: boolean
-  onOpenChange: (isOpen: boolean) => void
-  reusableMenuItemId: number
-  reusableMenuItemName: string
-  onSaveSuccess: () => void
+  onOpenChange: (open: boolean) => void
+  dish: any
+  ingredients: any[]
 }
 
-export function DishRecipeDialog({
-  isOpen,
-  onOpenChange,
-  reusableMenuItemId,
-  reusableMenuItemName,
-  onSaveSuccess,
-}: DishRecipeDialogProps) {
-  const { toast } = useToast()
-  const [ingredients, setIngredients] = useState<ReusableDishIngredient[]>([])
-  const [allIngredients, setAllIngredients] = useState<Ingredient[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [isAddingIngredient, setIsAddingIngredient] = useState(false)
+export function DishRecipeDialog({ isOpen, onOpenChange, dish, ingredients }: DishRecipeDialogProps) {
+  const [dishIngredients, setDishIngredients] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Form state for adding/editing ingredients
-  const [selectedIngredientId, setSelectedIngredientId] = useState<string>("")
-  const [quantity, setQuantity] = useState<string>("")
-  const [unit, setUnit] = useState<string>("")
-  const [editingIngredientId, setEditingIngredientId] = useState<number | null>(null)
-
+  // Fetch dish ingredients when dialog opens
   useEffect(() => {
-    if (isOpen && reusableMenuItemId) {
-      fetchIngredients()
-      fetchAllIngredients()
-      resetForm()
+    if (isOpen && dish) {
+      fetchDishIngredients()
     }
-  }, [isOpen, reusableMenuItemId])
+  }, [isOpen, dish])
 
-  const fetchIngredients = async () => {
-    setIsLoading(true)
+  const fetchDishIngredients = async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const data = await getIngredientsForReusableDish(reusableMenuItemId)
-      setIngredients(data)
-    } catch (error: any) {
+      const data = await getIngredientsForDish(dish.id)
+      setDishIngredients(data || [])
+    } catch (err: any) {
+      console.error("Failed to fetch dish ingredients:", err)
+      setError(err.message || "Failed to load ingredients")
       toast({
         title: "Error",
-        description: error.message || "No se pudieron cargar los ingredientes del platillo.",
+        description: "Failed to load ingredients. Please try again.",
         variant: "destructive",
       })
     } finally {
-      setIsLoading(false)
+      setLoading(false)
     }
   }
 
-  const fetchAllIngredients = async () => {
-    try {
-      const data = await getIngredients()
-      setAllIngredients(data)
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "No se pudieron cargar la lista de ingredientes.",
-        variant: "destructive",
-      })
+  const handleAddIngredient = () => {
+    setDishIngredients([
+      ...dishIngredients,
+      {
+        id: `temp-${Date.now()}`,
+        ingredient_id: "",
+        quantity: "",
+        unit: "",
+      },
+    ])
+  }
+
+  const handleRemoveIngredient = (index: number) => {
+    const newIngredients = [...dishIngredients]
+    newIngredients.splice(index, 1)
+    setDishIngredients(newIngredients)
+  }
+
+  const handleIngredientChange = (index: number, field: string, value: string) => {
+    const newIngredients = [...dishIngredients]
+    newIngredients[index] = {
+      ...newIngredients[index],
+      [field]: value,
     }
+
+    // If changing the ingredient, set the default unit
+    if (field === "ingredient_id") {
+      const selectedIngredient = ingredients.find((i) => i.id === Number.parseInt(value))
+      if (selectedIngredient && selectedIngredient.unit) {
+        newIngredients[index].unit = selectedIngredient.unit
+      }
+    }
+
+    setDishIngredients(newIngredients)
   }
 
-  const resetForm = () => {
-    setSelectedIngredientId("")
-    setQuantity("")
-    setUnit("")
-    setEditingIngredientId(null)
-    setIsAddingIngredient(false)
-  }
+  const handleSave = async () => {
+    // Validate ingredients
+    const invalidIngredients = dishIngredients.filter((ing) => !ing.ingredient_id || !ing.quantity || !ing.unit)
 
-  const handleAddUpdateIngredient = async (e: React.FormEvent) => {
-    e.preventDefault()
-
-    if (!selectedIngredientId || !quantity || !unit) {
+    if (invalidIngredients.length > 0) {
       toast({
-        title: "Error",
-        description: "Por favor, completa todos los campos.",
+        title: "Validation Error",
+        description: "All ingredients must have an ingredient, quantity, and unit selected.",
         variant: "destructive",
       })
       return
     }
 
-    const parsedQuantity = Number.parseFloat(quantity)
-    if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
-      toast({
-        title: "Error",
-        description: "La cantidad debe ser un número positivo.",
-        variant: "destructive",
-      })
-      return
-    }
-
+    setSaving(true)
     try {
-      if (editingIngredientId) {
-        await updateReusableDishIngredient(editingIngredientId, {
-          quantity_used: parsedQuantity,
-          unit_used: unit,
-        })
-        toast({ title: "Éxito", description: "Ingrediente actualizado." })
-      } else {
-        await addReusableDishIngredient({
-          reusable_menu_item_id: reusableMenuItemId,
-          ingredient_id: Number(selectedIngredientId),
-          quantity_used: parsedQuantity,
-          unit_used: unit,
-        })
-        toast({ title: "Éxito", description: "Ingrediente añadido." })
-      }
-      fetchIngredients()
-      onSaveSuccess()
-      resetForm()
-    } catch (error: any) {
+      // Format ingredients for saving
+      const formattedIngredients = dishIngredients.map((ing) => ({
+        ingredient_id: Number.parseInt(ing.ingredient_id),
+        quantity: Number.parseFloat(ing.quantity),
+        unit: ing.unit,
+      }))
+
+      await updateDishIngredients(dish.id, formattedIngredients)
+
+      toast({
+        title: "Success",
+        description: "Recipe ingredients saved successfully.",
+      })
+
+      onOpenChange(false)
+    } catch (err: any) {
+      console.error("Failed to save ingredients:", err)
       toast({
         title: "Error",
-        description: error.message || "No se pudo guardar el ingrediente.",
+        description: err.message || "Failed to save ingredients. Please try again.",
         variant: "destructive",
       })
+    } finally {
+      setSaving(false)
     }
   }
-
-  const handleEditClick = (ingredient: ReusableDishIngredient) => {
-    setSelectedIngredientId(ingredient.ingredient_id.toString())
-    setQuantity(ingredient.quantity_used.toString())
-    setUnit(ingredient.unit_used)
-    setEditingIngredientId(ingredient.id)
-    setIsAddingIngredient(true)
-  }
-
-  const handleDeleteIngredient = async (id: number) => {
-    if (confirm("¿Estás seguro de que quieres eliminar este ingrediente de la receta?")) {
-      try {
-        await removeReusableDishIngredient(id)
-        toast({ title: "Éxito", description: "Ingrediente eliminado." })
-        fetchIngredients()
-        onSaveSuccess()
-      } catch (error: any) {
-        toast({
-          title: "Error",
-          description: error.message || "No se pudo eliminar el ingrediente.",
-          variant: "destructive",
-        })
-      }
-    }
-  }
-
-  const totalCost = ingredients.reduce((sum, ing) => sum + (ing.total_cost || 0), 0)
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[900px] bg-white p-6 rounded-lg shadow-xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Receta: {reusableMenuItemName}</DialogTitle>
-          <DialogDescription>
-            Define los ingredientes y cantidades necesarias para preparar este platillo.
-          </DialogDescription>
+          <DialogTitle>Recipe: {dish?.name}</DialogTitle>
+          <DialogDescription>Manage ingredients for this dish.</DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-6 py-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-medium">Ingredientes de la Receta</h3>
-            <Button
-              type="button"
-              onClick={() => setIsAddingIngredient(!isAddingIngredient)}
-              variant="outline"
-              size="sm"
-              className="flex items-center gap-1"
-            >
-              {isAddingIngredient ? (
-                "Cancelar"
-              ) : (
-                <>
-                  <Plus className="h-4 w-4" /> Añadir Ingrediente
-                </>
-              )}
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+            <p className="ml-2">Loading ingredients...</p>
+          </div>
+        ) : error ? (
+          <div className="text-center text-red-600 py-4">
+            <p>{error}</p>
+            <Button onClick={fetchDishIngredients} className="mt-2">
+              Retry
             </Button>
           </div>
-
-          {isAddingIngredient && (
-            <form onSubmit={handleAddUpdateIngredient} className="bg-gray-50 p-4 rounded-md space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="ingredient">Ingrediente *</Label>
-                  <Select
-                    value={selectedIngredientId}
-                    onValueChange={(value) => {
-                      setSelectedIngredientId(value)
-                      const selectedIng = allIngredients.find((ing) => ing.id === Number(value))
-                      if (selectedIng) {
-                        setUnit(selectedIng.unit_of_measure)
-                      }
-                    }}
-                    disabled={!!editingIngredientId}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecciona un ingrediente" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allIngredients.map((ing) => (
-                        <SelectItem key={ing.id} value={ing.id.toString()}>
-                          {ing.name} ({ing.unit_of_measure})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="quantity">Cantidad *</Label>
-                  <Input
-                    id="quantity"
-                    type="number"
-                    step="0.01"
-                    value={quantity}
-                    onChange={(e) => setQuantity(e.target.value)}
-                    placeholder="0.00"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="unit">Unidad *</Label>
-                  <Input
-                    id="unit"
-                    value={unit}
-                    onChange={(e) => setUnit(e.target.value)}
-                    placeholder="ej. gramos, ml, unidades"
-                    required
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={resetForm}>
-                  Cancelar
+        ) : (
+          <>
+            <div className="space-y-4 py-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-medium">Ingredients</h3>
+                <Button onClick={handleAddIngredient} size="sm">
+                  <Plus className="h-4 w-4 mr-1" /> Add Ingredient
                 </Button>
-                <Button type="submit">{editingIngredientId ? "Actualizar Ingrediente" : "Añadir Ingrediente"}</Button>
               </div>
-            </form>
-          )}
 
-          <div className="border rounded-md overflow-hidden">
-            {isLoading ? (
-              <div className="text-center py-8">Cargando ingredientes...</div>
-            ) : ingredients.length === 0 ? (
-              <div className="text-center py-8 text-neutral-500">
-                <XCircle className="mx-auto h-12 w-12 mb-4 text-neutral-400" />
-                <p>No hay ingredientes añadidos a esta receta.</p>
-                <p className="text-sm">Haz clic en "Añadir Ingrediente" para comenzar.</p>
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Ingrediente</TableHead>
-                    <TableHead>Cantidad</TableHead>
-                    <TableHead>Unidad</TableHead>
-                    <TableHead>Costo por Unidad</TableHead>
-                    <TableHead>Costo Total</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {ingredients.map((ing) => (
-                    <TableRow key={ing.id}>
-                      <TableCell className="font-medium">{ing.ingredient_name}</TableCell>
-                      <TableCell>{ing.quantity_used}</TableCell>
-                      <TableCell>{ing.unit_used}</TableCell>
-                      <TableCell>${(ing.cost_per_unit || 0).toFixed(2)}</TableCell>
-                      <TableCell>${(ing.total_cost || 0).toFixed(2)}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" onClick={() => handleEditClick(ing)}>
-                            <Edit className="h-4 w-4 text-neutral-500 hover:text-warm-600" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDeleteIngredient(ing.id)}>
-                            <Trash2 className="h-4 w-4 text-red-500 hover:text-red-600" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+              {dishIngredients.length === 0 ? (
+                <p className="text-center text-gray-500 py-4">
+                  No ingredients added yet. Click "Add Ingredient" to start.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {dishIngredients.map((ingredient, index) => (
+                    <div key={ingredient.id || index} className="flex items-end gap-2">
+                      <div className="flex-1">
+                        <Label htmlFor={`ingredient-${index}`}>Ingredient</Label>
+                        <Select
+                          value={ingredient.ingredient_id?.toString() || ""}
+                          onValueChange={(value) => handleIngredientChange(index, "ingredient_id", value)}
+                        >
+                          <SelectTrigger id={`ingredient-${index}`}>
+                            <SelectValue placeholder="Select ingredient" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ingredients.map((ing) => (
+                              <SelectItem key={ing.id} value={ing.id.toString()}>
+                                {ing.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-24">
+                        <Label htmlFor={`quantity-${index}`}>Quantity</Label>
+                        <Input
+                          id={`quantity-${index}`}
+                          type="number"
+                          step="0.01"
+                          value={ingredient.quantity || ""}
+                          onChange={(e) => handleIngredientChange(index, "quantity", e.target.value)}
+                        />
+                      </div>
+                      <div className="w-24">
+                        <Label htmlFor={`unit-${index}`}>Unit</Label>
+                        <Input
+                          id={`unit-${index}`}
+                          value={ingredient.unit || ""}
+                          onChange={(e) => handleIngredientChange(index, "unit", e.target.value)}
+                        />
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleRemoveIngredient(index)}
+                        className="mb-0.5"
+                      >
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
-            )}
-          </div>
-
-          {ingredients.length > 0 && (
-            <div className="text-right">
-              <div className="text-lg font-semibold">
-                Costo Total de la Receta: <span className="text-green-600">${totalCost.toFixed(2)}</span>
-              </div>
-              <div className="text-sm text-gray-500">
-                Costo por porción: ${ingredients.length > 0 ? (totalCost / 1).toFixed(2) : "0.00"}
-              </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cerrar
-          </Button>
-        </DialogFooter>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
+                  </>
+                ) : (
+                  "Save Recipe"
+                )}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   )

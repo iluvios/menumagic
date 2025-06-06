@@ -1,17 +1,18 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { useToast } from "@/hooks/use-toast"
-import { getAllGlobalCategories, deleteDish } from "@/lib/actions/menu-studio-actions"
-import { getReusableMenuItemsForRecipesPage } from "@/lib/actions/recipe-actions"
-import { PlusCircle, Edit, Trash2, Loader2, Settings, Search, ChefHat } from "lucide-react"
-import { formatCurrency } from "@/lib/utils/client-formatters"
-import { MenuItemFormDialog } from "@/components/menu-item-form-dialog"
-import { CategoryFormDialog } from "@/components/category-form-dialog"
+import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { getAllDishes, getAllIngredients } from "@/lib/actions/recipe-actions"
+import { getCategories } from "@/lib/actions/category-actions"
 import { DishRecipeDialog } from "@/components/dish-recipe-dialog"
+import { DishFormDialog } from "@/components/dish-form-dialog"
+import { Loader2, Plus, Search, Edit, ImageIcon } from "lucide-react"
+import { toast } from "@/components/ui/use-toast"
+import { formatCurrency } from "@/lib/utils/client-formatters"
 
 interface Dish {
   id: number
@@ -21,297 +22,246 @@ interface Dish {
   menu_category_id: number
   category_name?: string
   image_url?: string | null
-  is_available: boolean
-  cost_per_serving?: number
 }
 
 interface Category {
   id: number
   name: string
   type: string
-  order_index: number
 }
 
 export default function RecipesPage() {
-  const { toast } = useToast()
   const [dishes, setDishes] = useState<Dish[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [ingredients, setIngredients] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
-  const [isCreateDishDialogOpen, setIsCreateDishDialogOpen] = useState(false)
-  const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false)
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState("all")
+  const [isAddDishDialogOpen, setIsAddDishDialogOpen] = useState(false)
   const [isRecipeDialogOpen, setIsRecipeDialogOpen] = useState(false)
-  const [editingDish, setEditingDish] = useState<Dish | null>(null)
-  const [selectedDishForRecipe, setSelectedDishForRecipe] = useState<Dish | null>(null)
-  const [deletingDishId, setDeletingDishId] = useState<number | null>(null)
+  const [selectedDish, setSelectedDish] = useState<Dish | null>(null)
 
+  // Fetch initial data
   useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      setError(null)
+      try {
+        const [dishesData, categoriesData, ingredientsData] = await Promise.all([
+          getAllDishes(),
+          getCategories(),
+          getAllIngredients(),
+        ])
+
+        setDishes(dishesData)
+        setCategories(categoriesData.filter((cat) => cat.type === "menu_item"))
+        setIngredients(ingredientsData)
+      } catch (err) {
+        console.error("Failed to fetch data:", err)
+        setError("Failed to load data. Please try again.")
+        toast({
+          title: "Error",
+          description: "Failed to load data. Please try again.",
+          variant: "destructive",
+        })
+      } finally {
+        setLoading(false)
+      }
+    }
+
     fetchData()
   }, [])
 
-  const fetchData = async () => {
-    setLoading(true)
-    try {
-      const [dishesData, categoriesData] = await Promise.all([
-        getReusableMenuItemsForRecipesPage(),
-        getAllGlobalCategories(),
-      ])
-      setDishes(dishesData)
-      setCategories(categoriesData)
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to load data.",
-        variant: "destructive",
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
+  // Filter dishes based on search term and category
+  const filteredDishes = dishes.filter((dish) => {
+    const matchesSearch = dish.name.toLowerCase().includes(searchTerm.toLowerCase())
+    const matchesCategory =
+      selectedCategoryFilter === "all" || dish.menu_category_id === Number.parseInt(selectedCategoryFilter)
+    return matchesSearch && matchesCategory
+  })
 
-  // Filter dishes based on search term
-  const filteredDishes = useMemo(() => {
-    if (!searchTerm) return dishes
-
-    return dishes.filter(
-      (dish) =>
-        dish.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        dish.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        dish.category_name?.toLowerCase().includes(searchTerm.toLowerCase()),
-    )
-  }, [dishes, searchTerm])
-
-  const handleEditDish = (dish: Dish) => {
-    setEditingDish(dish)
-    setIsCreateDishDialogOpen(true)
-  }
-
-  const handleManageRecipe = (dish: Dish) => {
-    setSelectedDishForRecipe(dish)
+  // Handle opening the recipe dialog for a dish
+  const handleOpenRecipeDialog = (dish: Dish) => {
+    setSelectedDish(dish)
     setIsRecipeDialogOpen(true)
   }
 
-  const handleDeleteDish = async (dishId: number, dishName: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${dishName}"? This will remove it from all menus.`)) return
-
-    setDeletingDishId(dishId)
-
+  // Handle dish creation/update success
+  const handleDishSaved = async () => {
     try {
-      await deleteDish(dishId)
+      const updatedDishes = await getAllDishes()
+      setDishes(updatedDishes)
       toast({
         title: "Success",
-        description: "Dish deleted successfully.",
+        description: "Dish saved successfully.",
       })
-      fetchData() // Refresh the list
-    } catch (error: any) {
+    } catch (err) {
+      console.error("Failed to refresh dishes:", err)
       toast({
         title: "Error",
-        description: error.message || "Failed to delete dish.",
+        description: "Failed to refresh dishes list.",
         variant: "destructive",
       })
-    } finally {
-      setDeletingDishId(null)
     }
-  }
-
-  const handleDishSaved = () => {
-    setIsCreateDishDialogOpen(false)
-    setEditingDish(null)
-    fetchData() // Refresh the list
-  }
-
-  const handleCategorySaved = () => {
-    setIsCategoryDialogOpen(false)
-    fetchData() // Refresh categories and dishes
-  }
-
-  const handleRecipeSaved = () => {
-    setIsRecipeDialogOpen(false)
-    setSelectedDishForRecipe(null)
-    fetchData() // Refresh the list
   }
 
   if (loading) {
     return (
-      <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between p-4 bg-white border-b">
-          <h1 className="text-2xl font-bold">Global Recipes & Dishes</h1>
-        </div>
-        <div className="flex-1 p-4">
-          <div className="flex justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin" />
-          </div>
-        </div>
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+        <p className="ml-2 text-gray-600">Loading dishes...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="text-center text-red-600 p-8">
+        <p>{error}</p>
+        <Button onClick={() => window.location.reload()} className="mt-4">
+          Retry
+        </Button>
       </div>
     )
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between p-4 bg-white border-b">
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold">Global Recipes & Dishes</h1>
-          <p className="text-gray-600">Manage your base dishes and recipes that can be used across all menus.</p>
+          <h2 className="text-2xl font-bold text-gray-900">Recipe Management</h2>
+          <p className="text-gray-600">Manage your dishes and their ingredients</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setIsCategoryDialogOpen(true)}>
-            <Settings className="mr-2 h-4 w-4" /> Manage Categories
-          </Button>
           <Button
-            onClick={() => {
-              setEditingDish(null)
-              setIsCreateDishDialogOpen(true)
-            }}
+            onClick={() => setIsAddDishDialogOpen(true)}
+            className="bg-gradient-to-r from-orange-500 to-red-500 text-white"
           >
-            <PlusCircle className="mr-2 h-4 w-4" /> Add New Dish
+            <Plus className="w-4 h-4 mr-2" />
+            Add Dish
           </Button>
         </div>
       </div>
 
-      <div className="flex-1 p-4">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>All Dishes ({filteredDishes.length})</CardTitle>
-                <CardDescription>
-                  These dishes can be added to any digital menu. Changes here will reflect across all menus.
-                </CardDescription>
-              </div>
-              <div className="relative w-72">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+      {/* Filters */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
                   placeholder="Search dishes..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9"
+                  className="pl-10"
                 />
               </div>
             </div>
-          </CardHeader>
-          <CardContent>
+            <div className="md:w-48">
+              <Select value={selectedCategoryFilter} onValueChange={setSelectedCategoryFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All categories</SelectItem>
+                  {categories.map((category) => (
+                    <SelectItem key={category.id} value={category.id.toString()}>
+                      {category.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Dishes List */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Dishes ({filteredDishes.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
             {filteredDishes.length === 0 ? (
-              <div className="text-center py-8">
-                {searchTerm ? (
-                  <p className="text-gray-500 mb-4">No dishes found matching "{searchTerm}".</p>
-                ) : (
-                  <p className="text-gray-500 mb-4">No dishes found. Create your first dish to get started.</p>
-                )}
-                {!searchTerm && (
-                  <Button
-                    onClick={() => {
-                      setEditingDish(null)
-                      setIsCreateDishDialogOpen(true)
-                    }}
-                  >
-                    <PlusCircle className="mr-2 h-4 w-4" /> Add New Dish
-                  </Button>
-                )}
-              </div>
+              <p className="text-center text-gray-500">No dishes found. Add your first dish to get started!</p>
             ) : (
-              <div className="space-y-2">
-                {filteredDishes.map((dish) => (
-                  <div
-                    key={dish.id}
-                    className="flex items-center justify-between rounded-md border p-4 shadow-sm bg-white"
-                  >
-                    <div className="flex items-center gap-4 flex-1">
-                      {dish.image_url && (
-                        <img
-                          src={dish.image_url || "/placeholder.svg"}
-                          alt={dish.name}
-                          className="h-16 w-16 rounded-md object-cover"
-                        />
-                      )}
+              filteredDishes.map((dish) => (
+                <div
+                  key={dish.id}
+                  className="border rounded-lg p-4 transition-all border-gray-200 bg-white hover:bg-gray-50"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4 flex-1">
+                      <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center overflow-hidden">
+                        {dish.image_url ? (
+                          <img
+                            src={dish.image_url || "/placeholder.svg"}
+                            alt={dish.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <ImageIcon className="w-6 h-6 text-gray-400" />
+                        )}
+                      </div>
                       <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold">{dish.name}</h3>
-                          {dish.category_name && (
-                            <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
-                              {dish.category_name}
-                            </span>
-                          )}
+                        <div className="flex items-center space-x-2 mb-1">
+                          <h3 className="font-semibold text-gray-900">{dish.name}</h3>
+                          <Badge variant="outline" className="text-xs">
+                            {dish.category_name || "Uncategorized"}
+                          </Badge>
                         </div>
-                        <p className="text-sm text-gray-500 mt-1">{dish.description}</p>
-                        <div className="flex items-center gap-4 mt-1">
-                          <p className="text-sm font-medium text-green-600">{formatCurrency(dish.price)}</p>
-                          <p className={`text-sm font-medium ${dish.is_available ? "text-green-600" : "text-red-600"}`}>
-                            {dish.is_available ? "Available" : "Not Available"}
-                          </p>
-                        </div>
+                        <p className="text-sm mb-2 text-gray-600 line-clamp-2">{dish.description}</p>
+                        <div className="text-sm font-medium text-green-600">{formatCurrency(dish.price)}</div>
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex items-center space-x-2 ml-4">
                       <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleManageRecipe(dish)}
-                        aria-label={`Manage recipe for ${dish.name}`}
-                        title="Manage Recipe"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenRecipeDialog(dish)}
+                        className="text-blue-600"
                       >
-                        <ChefHat className="h-4 w-4 text-blue-500" />
+                        Ingredients
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleEditDish(dish)}
-                        aria-label={`Edit ${dish.name}`}
+                      <DishFormDialog
+                        isOpen={false}
+                        onOpenChange={() => {}}
+                        dish={dish}
+                        categories={categories}
+                        onSaveSuccess={handleDishSaved}
                       >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDeleteDish(dish.id, dish.name)}
-                        disabled={deletingDishId === dish.id}
-                        aria-label={`Delete ${dish.name}`}
-                      >
-                        {deletingDishId === dish.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4 text-red-500" />
-                        )}
-                      </Button>
+                        <Button variant="outline" size="sm" className="text-blue-600">
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                      </DishFormDialog>
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))
             )}
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* Dish Form Dialog */}
-      <MenuItemFormDialog
-        isOpen={isCreateDishDialogOpen}
-        onOpenChange={setIsCreateDishDialogOpen}
-        digitalMenuId={0} // Not needed for global dishes
-        menuItem={editingDish}
-        onSave={handleDishSaved}
+      {/* Add Dish Dialog */}
+      <DishFormDialog
+        isOpen={isAddDishDialogOpen}
+        onOpenChange={setIsAddDishDialogOpen}
         categories={categories}
-        dishes={dishes}
+        onSaveSuccess={handleDishSaved}
       />
 
-      {/* Category Management Dialog */}
-      {isCategoryDialogOpen && (
-        <CategoryFormDialog
-          isOpen={isCategoryDialogOpen}
-          onOpenChange={setIsCategoryDialogOpen}
-          digitalMenuId={0} // Not needed for global category management
-          globalCategories={categories}
-          digitalMenuCategories={[]} // Not needed for global category management
-          onSaveSuccess={handleCategorySaved}
-        />
-      )}
-
-      {/* Recipe Management Dialog */}
-      {isRecipeDialogOpen && selectedDishForRecipe && (
+      {/* Recipe Dialog */}
+      {selectedDish && (
         <DishRecipeDialog
           isOpen={isRecipeDialogOpen}
           onOpenChange={setIsRecipeDialogOpen}
-          reusableMenuItemId={selectedDishForRecipe.id}
-          reusableMenuItemName={selectedDishForRecipe.name}
-          onSaveSuccess={handleRecipeSaved}
+          dish={selectedDish}
+          ingredients={ingredients}
         />
       )}
     </div>

@@ -11,7 +11,7 @@ const CreateMenuItemSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional().nullable(),
   price: z.number().min(0, "Price must be non-negative"),
-  menu_category_id: z.number().optional().nullable(),
+  category_id: z.number().optional().nullable(), // Changed from menu_category_id
   digital_menu_id: z.number(),
   orderIndex: z.number().optional(),
   isAvailable: z.boolean().optional(),
@@ -28,7 +28,7 @@ export async function getMenuItems() {
     const items = await neonSql`
       SELECT mi.*, c.name as category_name, dm.name as digital_menu_name
       FROM menu_items mi
-      LEFT JOIN categories c ON mi.menu_category_id = c.id
+      LEFT JOIN categories c ON mi.category_id = c.id -- Changed from mi.menu_category_id
       JOIN digital_menus dm ON mi.digital_menu_id = dm.id
       WHERE dm.restaurant_id = ${restaurantId}
       ORDER BY mi.name ASC
@@ -47,7 +47,7 @@ export async function getMenuItemById(id: number) {
     const result = await neonSql`
       SELECT mi.*, c.name as category_name
       FROM menu_items mi
-      LEFT JOIN categories c ON mi.menu_category_id = c.id
+      LEFT JOIN categories c ON mi.category_id = c.id -- Changed from mi.menu_category_id
       JOIN digital_menus dm ON mi.digital_menu_id = dm.id
       WHERE mi.id = ${id} AND dm.restaurant_id = ${restaurantId}
     `
@@ -67,7 +67,7 @@ export async function createMenuItem(data: z.infer<typeof CreateMenuItemSchema>,
     console.error("Validation Errors (createMenuItem):", validatedFields.error.flatten().fieldErrors)
     throw new Error(`Invalid menu item data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}`)
   }
-  let { name, description, price, menu_category_id, digital_menu_id, isAvailable, orderIndex } = validatedFields.data
+  let { name, description, price, category_id, digital_menu_id, isAvailable, orderIndex } = validatedFields.data // Changed from menu_category_id
 
   const menuCheckResults =
     await neonSql`SELECT id FROM digital_menus WHERE id = ${digital_menu_id} AND restaurant_id = ${restaurantId}`
@@ -89,14 +89,14 @@ export async function createMenuItem(data: z.infer<typeof CreateMenuItemSchema>,
   try {
     if (orderIndex === undefined || orderIndex === null) {
       const result =
-        await neonSql`SELECT MAX(order_index) as max_order FROM menu_items WHERE digital_menu_id = ${digital_menu_id} AND menu_category_id = ${menu_category_id}`
+        await neonSql`SELECT MAX(order_index) as max_order FROM menu_items WHERE digital_menu_id = ${digital_menu_id} AND category_id = ${category_id}` // Changed from menu_category_id
       const maxOrder = result[0]?.max_order
       orderIndex = (typeof maxOrder === "number" ? maxOrder : -1) + 1
     }
 
     const insertResult = await neonSql`
-      INSERT INTO menu_items (name, description, price, menu_category_id, digital_menu_id, image_url, order_index, is_available)
-      VALUES (${name}, ${description}, ${price}, ${menu_category_id}, ${digital_menu_id}, ${imageUrl}, ${orderIndex}, ${isAvailable ?? true})
+      INSERT INTO menu_items (name, description, price, category_id, digital_menu_id, image_url, order_index, is_available) -- Changed from menu_category_id
+      VALUES (${name}, ${description}, ${price}, ${category_id}, ${digital_menu_id}, ${imageUrl}, ${orderIndex}, ${isAvailable ?? true})
       RETURNING *
     `
 
@@ -175,7 +175,7 @@ export async function updateMenuItem(
     }
   }
 
-  const { name, description, price, menu_category_id, digital_menu_id, isAvailable, orderIndex } = dataToUpdate
+  const { name, description, price, category_id, digital_menu_id, isAvailable, orderIndex } = dataToUpdate // Changed from menu_category_id
 
   // Build SET clause dynamically for fields that are actually provided
   const setClauses: string[] = []
@@ -193,9 +193,10 @@ export async function updateMenuItem(
     setClauses.push(`price = $${queryParams.length + 1}`)
     queryParams.push(price)
   }
-  if (menu_category_id !== undefined) {
-    setClauses.push(`menu_category_id = $${queryParams.length + 1}`)
-    queryParams.push(menu_category_id)
+  if (category_id !== undefined) {
+    // Changed from menu_category_id
+    setClauses.push(`category_id = $${queryParams.length + 1}`) // Changed from menu_category_id
+    queryParams.push(category_id)
   }
   if (digital_menu_id !== undefined) {
     setClauses.push(`digital_menu_id = $${queryParams.length + 1}`)
@@ -294,7 +295,7 @@ export async function getMenuItemsByMenuId(digital_menu_id: number) {
       menuItems = await neonSql`
         SELECT mi.*, c.name as category_name
         FROM menu_items mi
-        LEFT JOIN categories c ON mi.menu_category_id = c.id
+        LEFT JOIN categories c ON mi.category_id = c.id -- Changed from mi.menu_category_id
         JOIN digital_menus dm ON mi.digital_menu_id = dm.id
         WHERE mi.digital_menu_id = ${digital_menu_id} AND dm.restaurant_id = ${restaurantId}
         ORDER BY mi.order_index ASC, mi.id ASC
@@ -303,7 +304,7 @@ export async function getMenuItemsByMenuId(digital_menu_id: number) {
       menuItems = await neonSql`
         SELECT mi.*, c.name as category_name
         FROM menu_items mi
-        LEFT JOIN categories c ON mi.menu_category_id = c.id
+        LEFT JOIN categories c ON mi.category_id = c.id -- Changed from mi.menu_category_id
         JOIN digital_menus dm ON mi.digital_menu_id = dm.id
         WHERE mi.digital_menu_id = ${digital_menu_id} AND dm.restaurant_id = ${restaurantId}
         ORDER BY mi.id ASC
@@ -333,7 +334,7 @@ export async function updateMenuItemOrder(menuId: number, categoryId: number | n
       const orderIndex = i
       await neonSql`
         UPDATE menu_items 
-        SET order_index = ${orderIndex}, menu_category_id = ${categoryId === 0 ? null : categoryId}
+        SET order_index = ${orderIndex}, category_id = ${categoryId === 0 ? null : categoryId} -- Changed from menu_category_id
         WHERE id = ${id}
       `
     }
@@ -357,12 +358,11 @@ export async function getMenuItemIngredients(menuItemId: number) {
 
   try {
     const ingredients = await neonSql`
-      SELECT rdi.*, i.name as ingredient_name, i.unit
-      FROM reusable_dish_ingredients rdi
-      JOIN ingredients i ON rdi.ingredient_id = i.id
-      JOIN menu_items mi ON rdi.reusable_menu_item_id = mi.reusable_menu_item_id
-      WHERE mi.id = ${menuItemId}
-      ORDER BY rdi.id ASC
+      SELECT mii.*, i.name as ingredient_name, i.unit
+      FROM menu_item_ingredients mii
+      JOIN ingredients i ON mii.ingredient_id = i.id
+      WHERE mii.menu_item_id = ${menuItemId}
+      ORDER BY mii.id ASC
     `
     return ingredients
   } catch (error: any) {
@@ -375,9 +375,27 @@ export async function updateMenuItemIngredients(menuItemId: number, ingredientsD
   const restaurantId = await getRestaurantIdFromSession()
   if (!restaurantId) throw new Error("Authentication required.")
 
-  // This would need proper implementation based on your ingredients schema
-  revalidatePath(`/dashboard/menus/dishes/${menuItemId}`)
-  return { success: true, message: "Ingredients updated successfully." }
+  try {
+    await neonSql.transaction(async (sql) => {
+      // Delete existing ingredients for this menu item
+      await sql`DELETE FROM menu_item_ingredients WHERE menu_item_id = ${menuItemId}`
+
+      // Insert new ingredients
+      for (const ingredient of ingredientsData) {
+        await sql`
+          INSERT INTO menu_item_ingredients (menu_item_id, ingredient_id, quantity, unit)
+          VALUES (${menuItemId}, ${ingredient.ingredient_id}, ${ingredient.quantity}, ${ingredient.unit})
+        `
+      }
+    })
+
+    revalidatePath(`/dashboard/operations-hub/recipes`)
+    revalidatePath(`/dashboard/menus/dishes/${menuItemId}`) // Revalidate if this affects menu display
+    return { success: true, message: "Ingredients updated successfully." }
+  } catch (error: any) {
+    console.error("Error updating menu item ingredients:", error)
+    throw new Error("Failed to update menu item ingredients: " + error.message)
+  }
 }
 
 export async function getMenuItemCategories() {
@@ -395,31 +413,4 @@ export async function getMenuItemCategories() {
     console.error("Error fetching menu item categories:", error)
     return []
   }
-}
-
-export async function getMenuItemReusableItems(menuItemId: number) {
-  const restaurantId = await getRestaurantIdFromSession()
-  if (!restaurantId) throw new Error("Authentication required.")
-
-  try {
-    const reusableItems = await neonSql`
-      SELECT rmi.*, c.name as category_name
-      FROM reusable_menu_items rmi
-      LEFT JOIN categories c ON rmi.menu_category_id = c.id
-      WHERE rmi.restaurant_id = ${restaurantId}
-      ORDER BY rmi.name ASC
-    `
-    return reusableItems
-  } catch (error: any) {
-    console.error("Error fetching reusable menu items:", error)
-    return []
-  }
-}
-
-export async function updateMenuItemReusableItems(menuItemId: number, reusableItemsData: any) {
-  const restaurantId = await getRestaurantIdFromSession()
-  if (!restaurantId) throw new Error("Authentication required.")
-
-  revalidatePath(`/dashboard/menus/dishes/${menuItemId}`)
-  return { success: true, message: "Reusable items updated successfully." }
 }

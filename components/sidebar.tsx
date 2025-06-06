@@ -13,7 +13,6 @@ import {
   Bot,
   Truck,
   ShoppingCart,
-  History,
   MapPin,
   BarChart,
   Settings,
@@ -26,6 +25,9 @@ import {
   Package,
   LineChart,
   ClipboardList,
+  CreditCard,
+  ReceiptText,
+  Table,
 } from "lucide-react"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {}
@@ -46,10 +48,10 @@ const dashboardConfig: NavItem[] = [
   },
   {
     title: "Inventarios",
-    icon: Package, // Changed from ChefHat to Package for inventory
+    icon: Package,
     items: [
       {
-        title: "Recetas", // Global Dishes / Reusable Menu Items
+        title: "Recetas",
         href: "/dashboard/operations-hub/recipes",
         icon: ChefHat,
       },
@@ -59,8 +61,8 @@ const dashboardConfig: NavItem[] = [
         icon: Salad,
       },
       {
-        title: "Ubicaciones", // Added from image
-        href: "/dashboard/operations-hub/inventory", // Assuming this maps to inventory locations
+        title: "Ubicaciones",
+        href: "/dashboard/operations-hub/inventory",
         icon: MapPin,
       },
     ],
@@ -72,33 +74,44 @@ const dashboardConfig: NavItem[] = [
       {
         title: "Ingresar costos",
         href: "/dashboard/costs",
-        icon: ClipboardList, // Changed from DollarSign to ClipboardList
+        icon: ClipboardList,
       },
       {
         title: "Ingresar costos con AI",
-        href: "/dashboard/smart-accounting/cost-sales-tracker", // Assuming this maps to a cost tracking page
+        href: "/dashboard/smart-accounting/cost-sales-tracker",
         icon: Bot,
       },
     ],
   },
   {
-    title: "Pedidos",
-    icon: ShoppingCart, // Changed from Truck to ShoppingCart
+    title: "Ordering System",
+    icon: ShoppingCart,
     items: [
       {
-        title: "Proveedores",
+        title: "POS System",
+        href: "/dashboard/pos",
+        icon: CreditCard,
+      },
+      {
+        title: "Orders History",
+        href: "/dashboard/pos/orders",
+        icon: ReceiptText,
+      },
+      {
+        title: "Table Management",
+        href: "/dashboard/pos/tables",
+        icon: Table,
+      },
+    ],
+  },
+  {
+    title: "Proveedores",
+    icon: Truck,
+    items: [
+      {
+        title: "Lista de Proveedores",
         href: "/dashboard/orders/suppliers",
         icon: Truck,
-      },
-      {
-        title: "Compras", // Assuming this is for new orders
-        href: "/dashboard/order-hub", // Assuming this maps to an order creation/management page
-        icon: ShoppingCart,
-      },
-      {
-        title: "Historial",
-        href: "/dashboard/menus/dishes", // Assuming this maps to order history
-        icon: History,
       },
     ],
   },
@@ -109,7 +122,7 @@ const dashboardConfig: NavItem[] = [
       {
         title: "Menú digital",
         href: "/dashboard/menu-studio/digital-menu",
-        icon: QrCode, // Changed from BookOpen to QrCode
+        icon: QrCode,
       },
       {
         title: "Menus PDF/para imprimir",
@@ -129,12 +142,12 @@ const dashboardConfig: NavItem[] = [
     ],
   },
   {
-    title: "Informes", // Added from image
-    icon: LineChart, // Changed from BarChart to LineChart
+    title: "Informes",
+    icon: LineChart,
     items: [
       {
         title: "Personalizados",
-        href: "/dashboard/analytics", // Assuming this maps to analytics/custom reports
+        href: "/dashboard/analytics",
         icon: BarChart,
       },
     ],

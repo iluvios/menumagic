@@ -8,7 +8,6 @@ import { useToast } from "@/hooks/use-toast"
 import {
   getDigitalMenus,
   deleteDigitalMenu,
-  uploadQrCodeForDigitalMenu,
   getMenuItemsByMenuId,
   getMenuCategoriesForDigitalMenu,
   getMenuTemplates,
@@ -20,10 +19,11 @@ import {
 } from "@/lib/actions/menu-studio-actions"
 import { processMenuWithAI, addAiItemToMenu } from "@/lib/actions/ai-menu-actions"
 import type { DigitalMenu as DigitalMenuType } from "@/lib/types"
-import { QrCode, Upload } from "lucide-react"
+import { Upload } from "lucide-react"
 import { DigitalMenuFormDialog } from "@/components/digital-menu-form-dialog"
 import { MenuItemFormDialog } from "@/components/menu-item-form-dialog"
 import { MenuTemplatesSection } from "@/components/menu-templates-section"
+import { QRCodeCard } from "@/components/qr-code-card"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -50,7 +50,6 @@ import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-
 import { CSS } from "@dnd-kit/utilities"
 import Image from "next/image"
 import { formatCurrency } from "@/lib/utils/client-formatters"
-import { PersistentQRDisplay } from "@/components/persistent-qr-display"
 
 interface DigitalMenu {
   id: number
@@ -601,57 +600,6 @@ export default function DigitalMenuHubPage() {
     setIsAddingAll(false)
   }
 
-  const handleGenerateQrCode = async () => {
-    if (!selectedMenu) {
-      toast({
-        title: "Error",
-        description: "Please select a menu first.",
-        variant: "destructive",
-      })
-      return
-    }
-
-    const menuUrl = `${window.location.origin}/menu/${selectedMenu.id}`
-    try {
-      const response = await fetch("/api/generate-qr", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ url: menuUrl }),
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to generate QR code.")
-      }
-
-      const { qrCodeBase64 } = await response.json()
-
-      const uploadResult = await uploadQrCodeForDigitalMenu(selectedMenu.id, qrCodeBase64)
-      if (uploadResult.success) {
-        setQrCodeUrl(uploadResult.qrCodeUrl)
-        toast({
-          title: "Success",
-          description: "QR code generated and uploaded!",
-        })
-        setSelectedMenu((prev) => (prev ? { ...prev, qr_code_url: uploadResult.qrCodeUrl } : null))
-      } else {
-        toast({
-          title: "Error",
-          description: "Failed to upload QR code.",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      console.error("Error generating or uploading QR code:", error)
-      toast({
-        title: "Error",
-        description: "Failed to generate QR code.",
-        variant: "destructive",
-      })
-    }
-  }
-
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event
 
@@ -726,6 +674,11 @@ export default function DigitalMenuHubPage() {
       default:
         return <Badge variant="outline">Pending</Badge>
     }
+  }
+
+  const handleQrCodeGenerated = (newQrCodeUrl: string) => {
+    setQrCodeUrl(newQrCodeUrl)
+    setSelectedMenu((prev) => (prev ? { ...prev, qr_code_url: newQrCodeUrl } : null))
   }
 
   return (
@@ -900,22 +853,12 @@ export default function DigitalMenuHubPage() {
               />
 
               {/* 4. QR Code */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>QR Code</CardTitle>
-                  <CardDescription>Generate and display a QR code for your digital menu.</CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col md:flex-row items-center gap-6">
-                  <Button onClick={handleGenerateQrCode} className="w-full md:w-auto">
-                    <QrCode className="mr-2 h-4 w-4" /> Generate QR Code
-                  </Button>
-                  {qrCodeUrl && (
-                    <div className="flex-1">
-                      <PersistentQRDisplay qrCodeUrl={qrCodeUrl} menuId={selectedMenu.id} />
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              <QRCodeCard
+                menuId={selectedMenu.id}
+                menuName={selectedMenu.name}
+                qrCodeUrl={qrCodeUrl}
+                onQrCodeGenerated={handleQrCodeGenerated}
+              />
 
               {/* 5. Menu Details (moved to bottom) */}
               <Card>

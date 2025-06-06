@@ -3,24 +3,10 @@
 import { sql } from "@/lib/db"
 import { revalidatePath } from "next/cache"
 import { getRestaurantIdFromSession } from "@/lib/auth"
-import { getReusableMenuItems } from "./reusable-menu-item-actions" // This import is correct
 
-interface Recipe {
+interface MenuItemIngredient {
   id: number
-  name: string
-  description: string
-  instructions: string
-  prep_time_minutes: number
-  cook_time_minutes: number
-  servings: number
-  category_id: number
-  category_name?: string
-  cost_per_serving?: number
-}
-
-interface ReusableDishIngredient {
-  id: number
-  reusable_menu_item_id: number
+  menu_item_id: number
   ingredient_id: number
   ingredient_name: string
   quantity_used: number
@@ -30,114 +16,291 @@ interface ReusableDishIngredient {
   ingredient_base_unit: string
 }
 
-// Legacy recipe functions (keeping for backward compatibility)
-export async function getRecipes() {
+interface Ingredient {
+  id: number
+  name: string
+  unit: string
+  current_stock?: number
+}
+
+interface Dish {
+  id: number
+  name: string
+  description: string
+  price: number
+  category_id: number | null
+  category_name: string | null
+  image_url: string | null
+  is_available: boolean
+  digital_menu_id: number
+  restaurant_id: number
+}
+
+// Get all dishes (using dishes table as single source of truth)
+export async function getAllDishes() {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
-      return []
+      throw new Error("Authentication required")
     }
-    const result = await sql`
-      SELECT r.id, r.name, r.description, r.instructions, r.prep_time_minutes, r.cook_time_minutes, r.servings, r.category_id, c.name as category_name
-      FROM recipes r
-      LEFT JOIN categories c ON r.category_id = c.id
-      WHERE r.restaurant_id = ${restaurantId}
-      ORDER BY r.created_at DESC
+
+    const dishes = await sql`
+      SELECT 
+        d.id, 
+        d.name, 
+        d.description, 
+        d.price, 
+        d.menu_category_id, 
+        c.name as category_name,
+        d.image_url
+      FROM dishes d
+      LEFT JOIN categories c ON d.menu_category_id = c.id
+      WHERE d.restaurant_id = ${restaurantId}
+      ORDER BY d.name ASC
     `
-    return result || []
+    return dishes
   } catch (error) {
-    console.error("Error fetching recipes:", error)
-    throw new Error("Failed to fetch recipes.")
+    console.error("Error fetching dishes:", error)
+    throw new Error("Failed to fetch dishes")
   }
 }
 
-export async function getRecipeById(id: number): Promise<Recipe | null> {
+// Get a single dish by ID
+export async function getDishById(id: number) {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
-      return null
+      throw new Error("Authentication required")
     }
-    const result = await sql`
-      SELECT r.id, r.name, r.description, r.instructions, r.prep_time_minutes, r.cook_time_minutes, r.servings, r.category_id, c.name as category_name
-      FROM recipes r
-      LEFT JOIN categories c ON r.category_id = c.id
-      WHERE r.id = ${id} AND r.restaurant_id = ${restaurantId}
+
+    const [dish] = await sql`
+      SELECT 
+        d.id, 
+        d.name, 
+        d.description, 
+        d.price, 
+        d.menu_category_id, 
+        c.name as category_name,
+        d.image_url
+      FROM dishes d
+      LEFT JOIN categories c ON d.menu_category_id = c.id
+      WHERE d.id = ${id} AND d.restaurant_id = ${restaurantId}
     `
-    return result[0] || null
+    return dish
   } catch (error) {
-    console.error(`Error fetching recipe with ID ${id}:`, error)
-    throw new Error("Failed to fetch recipe.")
+    console.error(`Error fetching dish with ID ${id}:`, error)
+    throw new Error("Failed to fetch dish")
   }
 }
 
-export async function createRecipe(data: Omit<Recipe, "id" | "category_name" | "cost_per_serving">) {
+// Create a new dish
+export async function createDish(data: {
+  name: string
+  description: string
+  price: number
+  menu_category_id: number
+  image_url?: string
+}) {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
-      throw new Error("Authentication required to create recipe.")
+      throw new Error("Authentication required")
     }
-    const result = await sql`
-      INSERT INTO recipes (name, description, instructions, prep_time_minutes, cook_time_minutes, servings, category_id, restaurant_id)
-      VALUES (${data.name}, ${data.description}, ${data.instructions}, ${data.prep_time_minutes}, ${data.cook_time_minutes}, ${data.servings}, ${data.category_id}, ${restaurantId})
-      RETURNING id, name
+
+    const [newDish] = await sql`
+      INSERT INTO dishes (
+        name, 
+        description, 
+        price, 
+        menu_category_id, 
+        image_url, 
+        restaurant_id
+      )
+      VALUES (
+        ${data.name}, 
+        ${data.description}, 
+        ${data.price}, 
+        ${data.menu_category_id}, 
+        ${data.image_url || null}, 
+        ${restaurantId}
+      )
+      RETURNING id, name, description, price, menu_category_id, image_url
     `
+
     revalidatePath("/dashboard/operations-hub/recipes")
-    return result[0]
+    revalidatePath("/dashboard/menu-studio/digital-menu")
+    return newDish
   } catch (error) {
-    console.error("Error creating recipe:", error)
-    throw new Error("Failed to create recipe.")
+    console.error("Error creating dish:", error)
+    throw new Error("Failed to create dish")
   }
 }
 
-export async function updateRecipe(
+// Update an existing dish
+export async function updateDish(
   id: number,
-  data: Partial<Omit<Recipe, "id" | "category_name" | "cost_per_serving">>,
+  data: {
+    name?: string
+    description?: string
+    price?: number
+    menu_category_id?: number
+    image_url?: string | null
+  },
 ) {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
-      throw new Error("Authentication required to update recipe.")
+      throw new Error("Authentication required")
     }
-    const result = await sql`
-      UPDATE recipes
+
+    const [updatedDish] = await sql`
+      UPDATE dishes
       SET
         name = COALESCE(${data.name}, name),
         description = COALESCE(${data.description}, description),
-        instructions = COALESCE(${data.instructions}, instructions),
-        prep_time_minutes = COALESCE(${data.prep_time_minutes}, prep_time_minutes),
-        cook_time_minutes = COALESCE(${data.cook_time_minutes}, cook_time_minutes),
-        servings = COALESCE(${data.servings}, servings),
-        category_id = COALESCE(${data.category_id}, category_id),
+        price = COALESCE(${data.price}, price),
+        menu_category_id = COALESCE(${data.menu_category_id}, menu_category_id),
+        image_url = COALESCE(${data.image_url}, image_url),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ${id} AND restaurant_id = ${restaurantId}
-      RETURNING id, name
+      RETURNING id, name, description, price, menu_category_id, image_url
     `
+
     revalidatePath("/dashboard/operations-hub/recipes")
-    return result[0]
+    revalidatePath("/dashboard/menu-studio/digital-menu")
+    return updatedDish
   } catch (error) {
-    console.error("Error updating recipe:", error)
-    throw new Error("Failed to update recipe.")
+    console.error(`Error updating dish with ID ${id}:`, error)
+    throw new Error("Failed to update dish")
   }
 }
 
-export async function deleteRecipe(id: number) {
+// Delete a dish
+export async function deleteDish(id: number) {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
-      throw new Error("Authentication required to delete recipe.")
+      throw new Error("Authentication required")
     }
-    await sql`
-      DELETE FROM recipes
-      WHERE id = ${id} AND restaurant_id = ${restaurantId}
-    `
+
+    // First delete any ingredients associated with this dish
+    await sql`DELETE FROM menu_item_ingredients WHERE menu_item_id = ${id}`
+
+    // Then delete the dish itself
+    await sql`DELETE FROM dishes WHERE id = ${id} AND restaurant_id = ${restaurantId}`
+
     revalidatePath("/dashboard/operations-hub/recipes")
+    revalidatePath("/dashboard/menu-studio/digital-menu")
     return { success: true }
   } catch (error) {
-    console.error("Error deleting recipe:", error)
-    throw new Error("Failed to delete recipe.")
+    console.error(`Error deleting dish with ID ${id}:`, error)
+    throw new Error("Failed to delete dish")
   }
 }
 
+// Get ingredients for a dish
+export async function getIngredientsForDish(dishId: number) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required")
+    }
+
+    const ingredients = await sql`
+      SELECT 
+        mii.id,
+        mii.menu_item_id,
+        mii.ingredient_id,
+        mii.quantity_used as quantity,
+        mii.unit_used as unit,
+        i.name as ingredient_name,
+        i.unit as ingredient_unit
+      FROM menu_item_ingredients mii
+      JOIN ingredients i ON mii.ingredient_id = i.id
+      JOIN dishes d ON mii.menu_item_id = d.id
+      WHERE mii.menu_item_id = ${dishId}
+      AND d.restaurant_id = ${restaurantId}
+    `
+    return ingredients
+  } catch (error) {
+    console.error(`Error fetching ingredients for dish ${dishId}:`, error)
+    throw new Error("Failed to fetch ingredients for dish")
+  }
+}
+
+// Get all ingredients (for dropdown selection)
+export async function getAllIngredients() {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required")
+    }
+
+    const ingredients = await sql`
+      SELECT 
+        id, 
+        name, 
+        unit,
+        category_id
+      FROM ingredients
+      WHERE restaurant_id = ${restaurantId}
+      ORDER BY name ASC
+    `
+    return ingredients
+  } catch (error) {
+    console.error("Error fetching ingredients:", error)
+    throw new Error("Failed to fetch ingredients")
+  }
+}
+
+// Update ingredients for a dish
+export async function updateDishIngredients(dishId: number, ingredients: any[]) {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      throw new Error("Authentication required")
+    }
+
+    // Verify the dish belongs to this restaurant
+    const dishCheck = await sql`
+      SELECT id FROM dishes WHERE id = ${dishId} AND restaurant_id = ${restaurantId}
+    `
+    if (dishCheck.length === 0) {
+      throw new Error("Dish not found or does not belong to this restaurant")
+    }
+
+    // Delete existing ingredients
+    await sql`DELETE FROM menu_item_ingredients WHERE menu_item_id = ${dishId}`
+
+    // Insert new ingredients
+    if (ingredients && ingredients.length > 0) {
+      for (const ingredient of ingredients) {
+        await sql`
+          INSERT INTO menu_item_ingredients (
+            menu_item_id, 
+            ingredient_id, 
+            quantity_used, 
+            unit_used
+          )
+          VALUES (
+            ${dishId}, 
+            ${ingredient.ingredient_id}, 
+            ${ingredient.quantity}, 
+            ${ingredient.unit}
+          )
+        `
+      }
+    }
+
+    revalidatePath("/dashboard/operations-hub/recipes")
+    return { success: true }
+  } catch (error) {
+    console.error(`Error updating ingredients for dish ${dishId}:`, error)
+    throw new Error("Failed to update dish ingredients")
+  }
+}
+
+// Get categories
 export async function getCategoriesByType(type: string) {
   try {
     const restaurantId = await getRestaurantIdFromSession()
@@ -152,181 +315,88 @@ export async function getCategoriesByType(type: string) {
     return result || []
   } catch (error) {
     console.error(`Error fetching categories of type ${type}:`, error)
-    throw new Error("Failed to fetch categories.")
+    return []
   }
 }
 
-// REUSABLE MENU ITEMS (GLOBAL DISHES) FUNCTIONS
-export async function getReusableMenuItemsForRecipesPage() {
-  return getReusableMenuItems()
+// Get digital menus for the dropdown
+export async function getDigitalMenus() {
+  try {
+    const restaurantId = await getRestaurantIdFromSession()
+    if (!restaurantId) {
+      return []
+    }
+    const result = await sql`
+      SELECT id, name FROM digital_menus
+      WHERE restaurant_id = ${restaurantId}
+      ORDER BY name ASC
+    `
+    return result || []
+  } catch (error) {
+    console.error("Error fetching digital menus:", error)
+    return []
+  }
 }
 
-// REUSABLE DISH INGREDIENTS FUNCTIONS
-export async function getIngredientsForReusableDish(reusableMenuItemId: number): Promise<ReusableDishIngredient[]> {
+// Add getRecipes function
+export async function getRecipes() {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
       return []
     }
 
-    // Verify the reusable menu item belongs to the restaurant
-    const itemCheck = await sql`
-      SELECT id FROM reusable_menu_items WHERE id = ${reusableMenuItemId} AND restaurant_id = ${restaurantId}
+    const recipes = await sql`
+      SELECT 
+        d.id, 
+        d.name, 
+        d.description, 
+        d.price, 
+        d.menu_category_id, 
+        c.name as category_name,
+        d.image_url
+      FROM dishes d
+      LEFT JOIN categories c ON d.menu_category_id = c.id
+      WHERE d.restaurant_id = ${restaurantId}
+      ORDER BY d.name ASC
     `
-    if (itemCheck.length === 0) {
-      throw new Error("Platillo no encontrado o no pertenece a este restaurante.")
-    }
-
-    const result = await sql`
-      SELECT
-        rdi.id,
-        rdi.reusable_menu_item_id,
-        rdi.ingredient_id,
-        i.name as ingredient_name,
-        rdi.quantity_used,
-        rdi.unit_used,
-        i.unit as ingredient_base_unit, -- Use 'unit' column from ingredients
-        COALESCE(isl.cost_per_storage_unit, 0) as cost_per_unit, -- Now isl.cost_per_storage_unit should exist
-        (rdi.quantity_used * COALESCE(isl.cost_per_storage_unit, 0)) as total_cost
-      FROM reusable_dish_ingredients rdi
-      JOIN ingredients i ON rdi.ingredient_id = i.id
-      LEFT JOIN inventory_stock_levels isl ON i.id = isl.ingredient_id AND isl.restaurant_id = ${restaurantId}
-      WHERE rdi.reusable_menu_item_id = ${reusableMenuItemId}
-      ORDER BY i.name ASC
-    `
-    return result || []
+    return recipes || []
   } catch (error) {
-    console.error(`Error fetching ingredients for reusable dish ${reusableMenuItemId}:`, error)
-    throw new Error("No se pudieron obtener los ingredientes para este platillo.")
+    console.error("Error fetching recipes:", error)
+    return []
   }
 }
 
-export async function addReusableDishIngredient(data: {
-  reusable_menu_item_id: number
-  ingredient_id: number
-  quantity_used: number
-  unit_used: string
-}) {
+// Add getReusableMenuItemsForRecipesPage function (alias to getAllDishes)
+export const getReusableMenuItemsForRecipesPage = getAllDishes
+
+// Add getRecipeById function
+export async function getRecipeById(id: number) {
   try {
     const restaurantId = await getRestaurantIdFromSession()
     if (!restaurantId) {
-      throw new Error("Se requiere autenticación para añadir ingredientes.")
+      throw new Error("Authentication required")
     }
 
-    // Verify the reusable menu item belongs to this restaurant
-    const menuItemCheck = await sql`
-      SELECT id FROM reusable_menu_items 
-      WHERE id = ${data.reusable_menu_item_id} AND restaurant_id = ${restaurantId}
+    const [recipe] = await sql`
+      SELECT 
+        d.id, 
+        d.name, 
+        d.description, 
+        d.price, 
+        d.menu_category_id, 
+        c.name as category_name,
+        d.image_url
+      FROM dishes d
+      LEFT JOIN categories c ON d.menu_category_id = c.id
+      WHERE d.id = ${id} AND d.restaurant_id = ${restaurantId}
     `
-    if (menuItemCheck.length === 0) {
-      throw new Error("Platillo no encontrado o no pertenece a este restaurante.")
-    }
-
-    // Verify the ingredient belongs to this restaurant
-    const ingredientCheck = await sql`
-      SELECT id FROM ingredients 
-      WHERE id = ${data.ingredient_id} AND restaurant_id = ${restaurantId}
-    `
-    if (ingredientCheck.length === 0) {
-      throw new Error("Ingrediente no encontrado o no pertenece a este restaurante.")
-    }
-
-    // Check if this ingredient is already in the recipe
-    const existingCheck = await sql`
-      SELECT id FROM reusable_dish_ingredients 
-      WHERE reusable_menu_item_id = ${data.reusable_menu_item_id} AND ingredient_id = ${data.ingredient_id}
-    `
-    if (existingCheck.length > 0) {
-      throw new Error("Este ingrediente ya está en la receta. Actualiza la cantidad en lugar de añadirlo de nuevo.")
-    }
-
-    const result = await sql`
-      INSERT INTO reusable_dish_ingredients (
-        reusable_menu_item_id, ingredient_id, quantity_used, unit_used
-      )
-      VALUES (
-        ${data.reusable_menu_item_id}, ${data.ingredient_id}, ${data.quantity_used}, ${data.unit_used}
-      )
-      RETURNING id
-    `
-    revalidatePath("/dashboard/menu-studio/digital-menu")
-    revalidatePath("/dashboard/operations-hub/recipes")
-    return result[0]
-  } catch (error: any) {
-    console.error("Error adding ingredient to reusable dish:", error)
-    throw error
-  }
-}
-
-export async function updateReusableDishIngredient(
-  id: number,
-  data: {
-    quantity_used?: number
-    unit_used?: string
-  },
-) {
-  try {
-    const restaurantId = await getRestaurantIdFromSession()
-    if (!restaurantId) {
-      throw new Error("Se requiere autenticación para actualizar ingredientes.")
-    }
-
-    // Verify the dish ingredient belongs to a reusable menu item owned by this restaurant
-    const linkCheck = await sql`
-      SELECT rdi.id 
-      FROM reusable_dish_ingredients rdi
-      JOIN reusable_menu_items rmi ON rdi.reusable_menu_item_id = rmi.id
-      WHERE rdi.id = ${id} AND rmi.restaurant_id = ${restaurantId}
-    `
-    if (linkCheck.length === 0) {
-      throw new Error("Ingrediente no encontrado o no pertenece a este restaurante.")
-    }
-
-    const result = await sql`
-      UPDATE reusable_dish_ingredients
-      SET 
-        quantity_used = COALESCE(${data.quantity_used}, quantity_used),
-        unit_used = COALESCE(${data.unit_used}, unit_used),
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = ${id}
-      RETURNING id
-    `
-    revalidatePath("/dashboard/menu-studio/digital-menu")
-    revalidatePath("/dashboard/operations-hub/recipes")
-    return result[0]
+    return recipe
   } catch (error) {
-    console.error(`Error updating reusable dish ingredient ${id}:`, error)
-    throw error
+    console.error(`Error fetching recipe with ID ${id}:`, error)
+    throw new Error("Failed to fetch recipe")
   }
 }
 
-export async function removeReusableDishIngredient(id: number) {
-  try {
-    const restaurantId = await getRestaurantIdFromSession()
-    if (!restaurantId) {
-      throw new Error("Se requiere autenticación para eliminar ingredientes.")
-    }
-
-    // Verify the dish ingredient belongs to a reusable menu item owned by this restaurant
-    const linkCheck = await sql`
-      SELECT rdi.id 
-      FROM reusable_dish_ingredients rdi
-      JOIN reusable_menu_items rmi ON rdi.reusable_menu_item_id = rmi.id
-      WHERE rdi.id = ${id} AND rmi.restaurant_id = ${restaurantId}
-    `
-    if (linkCheck.length === 0) {
-      throw new Error("Ingrediente no encontrado o no pertenece a este restaurante.")
-    }
-
-    await sql`
-      DELETE FROM reusable_dish_ingredients
-      WHERE id = ${id}
-    `
-    revalidatePath("/dashboard/menu-studio/digital-menu")
-    revalidatePath("/dashboard/operations-hub/recipes")
-    return { success: true }
-  } catch (error) {
-    console.error(`Error removing ingredient from reusable dish (ID: ${id}):`, error)
-    throw error
-  }
-}
+// Alias functions for the dialog component
+export const getIngredientsForReusableDish = getIngredientsForDish
