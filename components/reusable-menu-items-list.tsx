@@ -8,11 +8,7 @@ import { MenuItemFormDialog } from "@/components/menu-item-form-dialog"
 // import type { ReusableMenuItem } from "@/lib/types" // Temporarily removed for linting
 import { formatCurrency } from "@/lib/utils/client-formatters"
 import { DishRecipeDialog } from "./dish-recipe-dialog"
-import {
-  deleteReusableMenuItem,
-  // updateReusableMenuItem, // No longer directly called from here for dialog
-  // createReusableMenuItem, // No longer directly called from here for dialog
-} from "@/lib/actions/menu-studio-actions"
+import { deleteDish } from "@/lib/actions/menu-studio-actions"
 
 interface ReusableMenuItemsListProps {
   items: any[] // Temporarily using any[] for ReusableMenuItem
@@ -39,10 +35,10 @@ export function ReusableMenuItemsList({ items, onItemUpdated, onItemDeleted }: R
       )
     ) {
       try {
-        await deleteReusableMenuItem(id)
-        onItemDeleted() // Corrected: was onItemUpdated, should be onItemDeleted
+        await deleteDish(id)
+        onItemDeleted()
       } catch (error) {
-        console.error("Failed to delete reusable menu item:", error)
+        console.error("Failed to delete dish:", error)
         alert("Failed to delete global dish. Please try again.")
       }
     }

@@ -15,7 +15,7 @@ interface MenuTemplate {
 }
 
 interface MenuTemplatesSectionProps {
-  selectedMenu: { id: number; name: string }
+  selectedMenu: { id: number; name: string; template_id: number | null } // Added template_id to selectedMenu
   templates: MenuTemplate[]
   onApplyTemplate: (id: number) => void
 }
@@ -84,7 +84,8 @@ export const MenuTemplatesSection: React.FC<MenuTemplatesSectionProps> = ({
             {displayTemplates.map((template) => (
               <Card
                 key={template.id}
-                className="relative cursor-pointer border-2 rounded-lg overflow-hidden transition-all duration-200 hover:border-blue-300 hover:shadow-md"
+                className={`relative cursor-pointer border-2 rounded-lg overflow-hidden transition-all duration-200 hover:border-blue-300 hover:shadow-md
+                  ${selectedMenu.template_id === template.id ? "border-blue-500 ring-2 ring-blue-500" : ""}`}
               >
                 <CardContent className="p-0">
                   <div className="aspect-video">
@@ -93,6 +94,7 @@ export const MenuTemplatesSection: React.FC<MenuTemplatesSectionProps> = ({
                         template.preview_image ||
                         template.thumbnail ||
                         "/placeholder.svg?height=200&width=300&text=Template" ||
+                        "/placeholder.svg" ||
                         "/placeholder.svg"
                       }
                       alt={template.name}

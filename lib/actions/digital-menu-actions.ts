@@ -103,13 +103,13 @@ export async function createDigitalMenu(data: { name: string; status: string }) 
     const result = await sql`
       INSERT INTO digital_menus (name, status, restaurant_id)
       VALUES (${data.name}, ${data.status}, ${restaurantId})
-      RETURNING id, name, status
+      RETURNING id, name, status, qr_code_url, template_id, created_at, updated_at
     `
     revalidatePath("/dashboard/menu-studio/digital-menu")
-    return result[0]
+    return { success: true, menu: result[0] }
   } catch (error) {
     console.error("Error creating digital menu:", error)
-    throw new Error("Failed to create digital menu.")
+    return { success: false, error: "Failed to create digital menu." }
   }
 }
 
@@ -132,13 +132,13 @@ export async function updateDigitalMenu(
         qr_code_url = COALESCE(${data.qr_code_url}, qr_code_url),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ${id} AND restaurant_id = ${restaurantId}
-      RETURNING id, name, status, template_id, qr_code_url
+      RETURNING id, name, status, template_id, qr_code_url, created_at, updated_at
     `
     revalidatePath("/dashboard/menu-studio/digital-menu")
-    return result[0]
+    return { success: true, menu: result[0] }
   } catch (error) {
     console.error("Error updating digital menu:", error)
-    throw new Error("Failed to update digital menu.")
+    return { success: false, error: "Failed to update digital menu." }
   }
 }
 
@@ -184,7 +184,10 @@ export async function uploadQrCodeForDigitalMenu(menuId: number, base64Image: st
     const filename = `qr-code-${menuId}.png`
     const qrCodeUrl = await uploadBase64ImageToBlob(base64Image, filename)
 
-    await updateDigitalMenu(menuId, { qr_code_url: qrCodeUrl })
+    const result = await updateDigitalMenu(menuId, { qr_code_url: qrCodeUrl })
+    if (!result.success) {
+      throw new Error("Failed to update menu with QR code URL.")
+    }
 
     revalidatePath("/dashboard/menu-studio/digital-menu")
     return { success: true, qrCodeUrl }
