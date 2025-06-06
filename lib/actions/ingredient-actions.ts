@@ -10,7 +10,7 @@ const sql = neon(process.env.DATABASE_URL!)
 interface Ingredient {
   id: number
   name: string
-  description: string
+  description?: string
   unit_of_measure: string // This is the base unit for the ingredient
   cost_per_unit: number
   category_id: number
@@ -20,6 +20,7 @@ interface Ingredient {
   restaurant_id: number
   current_stock?: number // Added for inventory context
   low_stock_threshold?: number // Added for inventory context
+  sku?: string
 }
 
 interface Category {
@@ -42,13 +43,14 @@ export async function getIngredients(): Promise<Ingredient[]> {
         i.id,
         i.name,
         i.description,
-        i.unit AS unit_of_measure, -- Use 'unit' column as unit_of_measure
+        COALESCE(i.unit, 'unit') AS unit_of_measure,
         i.cost_per_unit,
         i.category_id,
         c.name AS category_name,
         s.name AS supplier_name,
-        isl.current_quantity_in_storage_units AS current_stock, -- Join for current stock
-        isl.low_stock_threshold_quantity AS low_stock_threshold -- Join for low stock threshold
+        COALESCE(isl.current_quantity_in_storage_units, 0) AS current_stock,
+        COALESCE(isl.low_stock_threshold_quantity, 0) AS low_stock_threshold,
+        i.sku
       FROM ingredients i
       LEFT JOIN categories c ON i.category_id = c.id
       LEFT JOIN suppliers s ON i.supplier_id = s.id
@@ -77,13 +79,14 @@ export async function getIngredientById(id: number): Promise<Ingredient | null> 
         i.id,
         i.name,
         i.description,
-        i.unit AS unit_of_measure,
+        COALESCE(i.unit, 'unit') AS unit_of_measure,
         i.cost_per_unit,
         i.category_id,
         c.name AS category_name,
         s.name AS supplier_name,
-        isl.current_quantity_in_storage_units AS current_stock,
-        isl.low_stock_threshold_quantity AS low_stock_threshold
+        COALESCE(isl.current_quantity_in_storage_units, 0) AS current_stock,
+        COALESCE(isl.low_stock_threshold_quantity, 0) AS low_stock_threshold,
+        i.sku
       FROM ingredients i
       LEFT JOIN categories c ON i.category_id = c.id
       LEFT JOIN suppliers s ON i.supplier_id = s.id
@@ -99,7 +102,7 @@ export async function getIngredientById(id: number): Promise<Ingredient | null> 
 
 export async function createIngredient(data: {
   name: string
-  description: string
+  description?: string
   unit_of_measure: string
   cost_per_unit: number
   category_id: number
@@ -113,15 +116,25 @@ export async function createIngredient(data: {
     }
 
     const [newIngredient] = await sql<Ingredient[]>`
-      INSERT INTO ingredients (name, description, unit, cost_per_unit, category_id, supplier_id, restaurant_id)
-      VALUES (${data.name}, ${data.description}, ${data.unit_of_measure}, ${data.cost_per_unit}, ${data.category_id}, ${data.supplier_id || null}, ${restaurantId})
-      RETURNING id, name, description, unit, cost_per_unit, category_id, supplier_id, restaurant_id;
+      INSERT INTO ingredients (name, description, unit, cost_per_unit, category_id, supplier_id, restaurant_id, sku)
+      VALUES (
+        ${data.name}, 
+        ${data.description || ""}, 
+        ${data.unit_of_measure}, 
+        ${data.cost_per_unit}, 
+        ${data.category_id}, 
+        ${data.supplier_id || null}, 
+        ${restaurantId},
+        ''
+      )
+      RETURNING id, name, description, unit, cost_per_unit, category_id, supplier_id, restaurant_id, sku;
     `
 
     // Initialize inventory stock level for the new ingredient
     await sql`
-      INSERT INTO inventory_stock_levels (restaurant_id, ingredient_id, storage_unit, current_quantity_in_storage_units, low_stock_threshold_quantity)
-      VALUES (${restaurantId}, ${newIngredient.id}, ${newIngredient.unit_of_measure}, 0, 0);
+      INSERT INTO inventory_stock_levels (restaurant_id, ingredient_id, storage_unit, current_quantity_in_storage_units, low_stock_threshold_quantity, cost_per_storage_unit)
+      VALUES (${restaurantId}, ${newIngredient.id}, ${data.unit_of_measure}, 0, 0, ${data.cost_per_unit})
+      ON CONFLICT (restaurant_id, ingredient_id) DO NOTHING;
     `
 
     revalidatePath("/dashboard/operations-hub/ingredients")
@@ -165,17 +178,19 @@ export async function updateIngredient(
         supplier_id = COALESCE(${data.supplier_id}, supplier_id),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ${id} AND restaurant_id = ${restaurantId}
-      RETURNING id, name, description, unit, cost_per_unit, category_id, supplier_id, restaurant_id;
+      RETURNING id, name, description, unit, cost_per_unit, category_id, supplier_id, restaurant_id, sku;
     `
     if (!updatedIngredient) {
       throw new Error("Ingredient not found or does not belong to this restaurant.")
     }
 
-    // If unit of measure changed, update in inventory_stock_levels as well
-    if (data.unit_of_measure) {
+    // If unit of measure or cost per unit changed, update in inventory_stock_levels as well
+    if (data.unit_of_measure || data.cost_per_unit) {
       await sql`
         UPDATE inventory_stock_levels
-        SET storage_unit = ${data.unit_of_measure}
+        SET
+          storage_unit = COALESCE(${data.unit_of_measure}, storage_unit),
+          cost_per_storage_unit = COALESCE(${data.cost_per_unit}, cost_per_storage_unit)
         WHERE ingredient_id = ${id} AND restaurant_id = ${restaurantId};
       `
     }
@@ -222,20 +237,3 @@ export async function deleteIngredient(id: number) {
     throw new Error("Failed to delete ingredient.")
   }
 }
-
-// This function is already in category-actions.ts, but keeping it here for context if needed
-// export async function getCategoriesByType(type: string): Promise<Category[]> {
-//   noStore();
-//   try {
-//     const categories = await sql<Category[]>`
-//       SELECT id, name, type
-//       FROM categories
-//       WHERE type = ${type}
-//       ORDER BY name ASC;
-//     `;
-//     return categories;
-//   } catch (error) {
-//     console.error("Database Error:", error);
-//     throw new Error("Failed to fetch categories by type.");
-//   }
-// }

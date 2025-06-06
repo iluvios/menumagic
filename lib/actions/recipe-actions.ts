@@ -185,8 +185,8 @@ export async function getIngredientsForReusableDish(reusableMenuItemId: number):
         i.name as ingredient_name,
         rdi.quantity_used,
         rdi.unit_used,
-        i.unit_of_measure as ingredient_base_unit,
-        COALESCE(isl.cost_per_storage_unit, 0) as cost_per_unit,
+        i.unit as ingredient_base_unit, -- Use 'unit' column from ingredients
+        COALESCE(isl.cost_per_storage_unit, 0) as cost_per_unit, -- Now isl.cost_per_storage_unit should exist
         (rdi.quantity_used * COALESCE(isl.cost_per_storage_unit, 0)) as total_cost
       FROM reusable_dish_ingredients rdi
       JOIN ingredients i ON rdi.ingredient_id = i.id
