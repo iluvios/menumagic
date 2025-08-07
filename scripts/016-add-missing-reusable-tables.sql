@@ -1,36 +1,29 @@
--- Check if reusable_menu_items table exists, if not create it
+-- Add missing reusable tables
+
+-- Create a table for reusable menu items (global dishes)
 CREATE TABLE IF NOT EXISTS reusable_menu_items (
-  id SERIAL PRIMARY KEY,
-  name VARCHAR(255) NOT NULL,
-  description TEXT,
-  price DECIMAL(10, 2),
-  menu_category_id INTEGER,
-  restaurant_id INTEGER NOT NULL,
-  image_url TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id SERIAL PRIMARY KEY,
+    restaurant_id INTEGER NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    price DECIMAL(10, 2) NOT NULL,
+    menu_category_id INTEGER REFERENCES categories(id),
+    image_url VARCHAR(255),
+    is_available BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE
 );
 
--- Check if reusable_dish_ingredients table exists, if not create it
-CREATE TABLE IF NOT EXISTS reusable_dish_ingredients (
-  id SERIAL PRIMARY KEY,
-  reusable_menu_item_id INTEGER NOT NULL,
-  ingredient_id INTEGER NOT NULL,
-  quantity_used DECIMAL(10, 2) NOT NULL,
-  unit_used VARCHAR(50) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_reusable_menu_item FOREIGN KEY (reusable_menu_item_id) REFERENCES reusable_menu_items(id) ON DELETE CASCADE,
-  CONSTRAINT fk_ingredient FOREIGN KEY (ingredient_id) REFERENCES ingredients(id) ON DELETE CASCADE
+-- Create a table for menu item ingredients (recipes)
+CREATE TABLE IF NOT EXISTS menu_item_ingredients (
+    id SERIAL PRIMARY KEY,
+    menu_item_id INTEGER NOT NULL,
+    ingredient_id INTEGER NOT NULL,
+    quantity_used DECIMAL(10, 2) NOT NULL,
+    unit_used VARCHAR(50) NOT NULL,
+    cost_per_unit DECIMAL(10, 2) NOT NULL,
+    total_cost DECIMAL(10, 2) NOT NULL,
+    ingredient_base_unit VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE
 );
-
--- Add a reusable_menu_item_id column to menu_items if it doesn't exist
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns 
-    WHERE table_name = 'menu_items' AND column_name = 'reusable_menu_item_id'
-  ) THEN
-    ALTER TABLE menu_items ADD COLUMN reusable_menu_item_id INTEGER;
-  END IF;
-END $$;

@@ -1,23 +1,32 @@
--- Proposed simplified menu_items table structure
--- This would replace both current tables
+-- Proposed simplified structure (DO NOT RUN DIRECTLY)
 
-CREATE TABLE IF NOT EXISTS menu_items_new (
+-- Drop existing tables (backup data if needed)
+-- DROP TABLE menu_items;
+-- DROP TABLE digital_menu_categories;
+-- DROP TABLE categories;
+
+-- Create a single categories table
+CREATE TABLE categories (
     id SERIAL PRIMARY KEY,
-    digital_menu_id INT NOT NULL REFERENCES digital_menus(id) ON DELETE CASCADE,
+    restaurant_id INTEGER NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    order_index INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Create a single menu_items table
+CREATE TABLE menu_items (
+    id SERIAL PRIMARY KEY,
+    digital_menu_id INTEGER REFERENCES digital_menus(id),
     name VARCHAR(255) NOT NULL,
     description TEXT,
     price DECIMAL(10, 2) NOT NULL,
-    image_url TEXT,
-    menu_category_id INT REFERENCES categories(id) ON DELETE SET NULL,
+    category_id INTEGER REFERENCES categories(id),
+    image_url VARCHAR(255),
+    is_available BOOLEAN DEFAULT TRUE,
     order_index INTEGER DEFAULT 0,
-    is_available BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE
 );
-
--- Show what this would look like
-SELECT 'Proposed simplified structure:' as info;
-SELECT column_name, data_type, is_nullable 
-FROM information_schema.columns 
-WHERE table_name = 'menu_items_new' 
-ORDER BY ordinal_position;

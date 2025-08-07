@@ -1,5 +1,5 @@
 ALTER TABLE categories
-ADD COLUMN order_index INTEGER;
+ADD COLUMN order_index INTEGER DEFAULT 0;
 
 -- Populate order_index for existing categories based on their current ID or a default
 UPDATE categories

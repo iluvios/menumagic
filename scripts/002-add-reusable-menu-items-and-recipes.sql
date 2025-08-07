@@ -1,12 +1,13 @@
 -- Create reusable_menu_items table (global dishes/recipes)
 CREATE TABLE IF NOT EXISTS reusable_menu_items (
     id SERIAL PRIMARY KEY,
-    restaurant_id INT NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+    restaurant_id INTEGER NOT NULL,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     price DECIMAL(10, 2) NOT NULL,
-    image_url TEXT,
-    menu_category_id INT REFERENCES categories(id) ON DELETE SET NULL, -- Link to a global category
+    menu_category_id INTEGER REFERENCES categories(id),
+    image_url VARCHAR(255),
+    is_available BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -25,6 +26,20 @@ CREATE TABLE IF NOT EXISTS reusable_dish_ingredients (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (reusable_menu_item_id, ingredient_id) -- An ingredient can only be listed once per dish
+);
+
+-- Create menu_item_ingredients table (recipes)
+CREATE TABLE IF NOT EXISTS menu_item_ingredients (
+    id SERIAL PRIMARY KEY,
+    menu_item_id INTEGER NOT NULL,
+    ingredient_id INTEGER NOT NULL,
+    quantity_used DECIMAL(10, 2) NOT NULL,
+    unit_used VARCHAR(50) NOT NULL,
+    cost_per_unit DECIMAL(10, 2) NOT NULL,
+    total_cost DECIMAL(10, 2) NOT NULL,
+    ingredient_base_unit VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Add reusable_menu_item_id to menu_items table

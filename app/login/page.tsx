@@ -1,22 +1,30 @@
 "use client"
-import { Menu } from "lucide-react"
 
-import { useState } from "react"
+import { Menu } from 'lucide-react'
+import { useActionState, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Eye, EyeOff, ArrowLeft, Mail, Lock } from "lucide-react"
+import { Eye, EyeOff, ArrowLeft, Mail, Lock } from 'lucide-react'
 import Link from "next/link"
-import { loginUser } from "@/lib/auth"
+import { loginUserAction, type LoginFormState } from "./actions"
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [state, formAction, isPending] = useActionState<LoginFormState, FormData>(loginUserAction, null)
+
+  // Keep fields after server response (error), so the form doesn't clear.
+  useEffect(() => {
+    // no-op: controlled inputs already preserve values across renders
+  }, [state])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 to-red-50 flex items-center justify-center p-4">
       {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden">
+      <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-r from-orange-400 to-red-400 rounded-full opacity-10"></div>
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-r from-red-400 to-orange-400 rounded-full opacity-10"></div>
       </div>
@@ -46,21 +54,31 @@ export default function LoginPage() {
           </CardHeader>
 
           <CardContent>
-            <form action={loginUser} className="space-y-5">
+            {state?.error && (
+              <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {state.error}
+              </div>
+            )}
+
+            <form action={formAction} className="space-y-5">
               {/* Email Field */}
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-sm font-medium text-gray-700">
                   Correo electrónico
                 </Label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <Input
                     id="email"
                     name="email"
                     type="email"
                     placeholder="tu@restaurante.com"
                     className="pl-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     required
+                    disabled={isPending}
                   />
                 </div>
               </div>
@@ -71,19 +89,25 @@ export default function LoginPage() {
                   Contraseña
                 </Label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <Input
                     id="password"
                     name="password"
                     type={showPassword ? "text" : "password"}
                     placeholder="Tu contraseña"
                     className="pl-10 pr-10 h-12 border-gray-200 focus:border-orange-500 focus:ring-orange-500"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     required
+                    disabled={isPending}
                   />
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                    aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                    aria-pressed={showPassword}
                   >
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
@@ -104,8 +128,9 @@ export default function LoginPage() {
               <Button
                 type="submit"
                 className="w-full h-12 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-medium transition-all duration-200"
+                disabled={isPending}
               >
-                Iniciar Sesión
+                {isPending ? "Ingresando..." : "Iniciar Sesión"}
               </Button>
 
               {/* Divider */}
@@ -118,10 +143,10 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* Social Login Buttons */}
+              {/* Social Login Buttons (placeholders) */}
               <div className="grid grid-cols-2 gap-4">
-                <Button type="button" variant="outline" className="h-12 border-gray-200 hover:bg-gray-50">
-                  <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
+                <Button type="button" variant="outline" className="h-12 border-gray-200 hover:bg-gray-50" disabled={isPending}>
+                  <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       fill="#4285F4"
                       d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -141,8 +166,8 @@ export default function LoginPage() {
                   </svg>
                   Google
                 </Button>
-                <Button type="button" variant="outline" className="h-12 border-gray-200 hover:bg-gray-50">
-                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
+                <Button type="button" variant="outline" className="h-12 border-gray-200 hover:bg-gray-50" disabled={isPending}>
+                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
                   </svg>
                   Facebook

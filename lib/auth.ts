@@ -1,41 +1,48 @@
 "use server"
 
-import { sql } from "@/lib/db" // Ensure this import is correct
+import { sql } from "@/lib/db"
 import bcrypt from "bcryptjs"
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
+import { SESSION_COOKIE_NAME, type UserSession } from "@/lib/session"
 
-const SESSION_COOKIE_NAME = "menumagic_session"
+interface RegisterResult {
+  success: boolean
+  error?: string
+}
 
-interface UserSession {
-  userId: number
-  restaurantId: number
+interface LoginResult {
+  success: boolean
+  error?: string
 }
 
 // Helper to set session cookie
 async function setSessionCookie(userId: number, restaurantId: number) {
   const sessionData: UserSession = { userId, restaurantId }
+  // Use SameSite=Lax so redirects after POST keep the cookie
   cookies().set(SESSION_COOKIE_NAME, JSON.stringify(sessionData), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
     maxAge: 60 * 60 * 24 * 7, // 1 week
     path: "/",
   })
 }
 
-// Helper to get session data
+// Helper to get session data (server-side only)
 export async function getSession(): Promise<UserSession | null> {
   const sessionCookie = cookies().get(SESSION_COOKIE_NAME)
-  if (!sessionCookie) {
-    return null
-  }
+  if (!sessionCookie) return null
   try {
-    return JSON.parse(sessionCookie.value) as UserSession
+    const parsed = JSON.parse(sessionCookie.value) as UserSession
+    if (typeof parsed.userId === "number" && typeof parsed.restaurantId === "number") {
+      return parsed
+    }
   } catch (error) {
     console.error("Error parsing session cookie:", error)
-    return null
   }
+  return null
 }
 
 // Helper to get current user and restaurant details
@@ -66,7 +73,6 @@ export async function getCurrentUserAndRestaurant() {
     return { user, restaurant }
   } catch (error) {
     console.error("Error fetching current user and restaurant:", error)
-    // Re-throw or return a specific error to indicate database connection failure
     throw new Error("Error connecting to database: " + (error as Error).message)
   }
 }
@@ -77,11 +83,11 @@ export async function getRestaurantIdFromSession(): Promise<number | null> {
   return session ? session.restaurantId : null
 }
 
-export async function registerUser(formData: FormData) {
-  const name = formData.get("name") as string
-  const email = formData.get("email") as string
-  const phone = formData.get("phone") as string
-  const password = formData.get("password") as string
+export async function registerUser(formData: FormData): Promise<RegisterResult | void> {
+  const name = (formData.get("name") as string)?.trim()
+  const email = (formData.get("email") as string)?.toLowerCase().trim()
+  const phone = (formData.get("phone") as string)?.trim()
+  const password = (formData.get("password") as string) ?? ""
   const acceptTerms = formData.get("acceptTerms") === "on"
 
   if (!acceptTerms) {
@@ -109,8 +115,7 @@ export async function registerUser(formData: FormData) {
     await sql`SELECT setval('users_id_seq', (SELECT COALESCE(MAX(id), 0) FROM users) + 1, false)`
     await sql`SELECT setval('restaurants_id_seq', (SELECT COALESCE(MAX(id), 0) FROM restaurants) + 1, false)`
 
-    // Execute queries sequentially
-    // 1. Create the user (let the database auto-assign the ID)
+    // 1. Create the user
     const newUser = await sql`
       INSERT INTO users (name, email, password_hash)
       VALUES (${name}, ${email}, ${hashedPassword})
@@ -147,9 +152,9 @@ export async function registerUser(formData: FormData) {
   redirect("/onboarding")
 }
 
-export async function loginUser(formData: FormData) {
-  const email = formData.get("email") as string
-  const password = formData.get("password") as string
+export async function loginUser(formData: FormData): Promise<LoginResult | void> {
+  const email = (formData.get("email") as string)?.toLowerCase().trim()
+  const password = (formData.get("password") as string) ?? ""
 
   if (!email || !password) {
     return { success: false, error: "Correo electrónico y contraseña son obligatorios." }
@@ -163,7 +168,12 @@ export async function loginUser(formData: FormData) {
     `
     const user = userResult[0]
 
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+    if (!user || !user.password_hash) {
+      return { success: false, error: "Credenciales inválidas." }
+    }
+
+    const valid = await bcrypt.compare(password, user.password_hash)
+    if (!valid) {
       return { success: false, error: "Credenciales inválidas." }
     }
 
@@ -173,7 +183,7 @@ export async function loginUser(formData: FormData) {
     // Revalidate paths that depend on user/restaurant data
     revalidatePath("/")
   } catch (error) {
-    console.error("Error during login:", error)
+    console.error("Error durante el inicio de sesión:", error)
     return { success: false, error: "Error al iniciar sesión. Inténtalo de nuevo." }
   }
 

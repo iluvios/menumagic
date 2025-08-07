@@ -10,6 +10,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,41 +19,75 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { toast } from "sonner"
-import { Loader2, Plus, Trash2 } from "lucide-react"
+import { Loader2, Plus, Trash2 } from 'lucide-react'
 import Image from "next/image"
-import { createMenuItem, updateMenuItem, getAllGlobalCategories, getAllDishes } from "@/lib/actions/menu-studio-actions"
+import {
+  createMenuItem,
+  updateMenuItem,
+  getAllGlobalCategories,
+  getAllDishes,
+  type Category,
+  type Dish,
+} from "@/lib/actions/menu-studio-actions"
 import { formatCurrency } from "@/lib/utils/client-formatters"
 import { SimpleCategoryDialog } from "@/components/simple-category-dialog"
 
 interface MenuItemFormDialogProps {
-  isOpen: boolean
-  onOpenChange: (open: boolean) => void
+  // Controlled mode (optional)
+  isOpen?: boolean
+  onOpenChange?: (open: boolean) => void
+
+  // For "Add Item" workflow
   digitalMenuId?: number
-  menuItem?: any // Existing menu item data for editing
+
+  // For "Edit" workflow (editing the underlying dish through menu_item id)
+  menuItem?: {
+    id: number // menu_items.id
+    dish_id: number
+    name: string
+    description?: string | null
+    price: number
+    menu_category_id?: number | null
+    image_url?: string | null
+    is_available?: boolean
+  }
+
   onSave: () => void
-  categories: any[] // Global categories
-  dishes: any[] // Global dishes
+
+  // Prefetched data (optional). If not provided, component fetches on open.
+  categories?: Category[]
+  dishes?: Dish[]
+
+  children?: React.ReactNode // trigger
 }
 
 // Helper to safely format price for display
 const formatPriceForDisplay = (price: string | number | null | undefined) => {
   const numPrice = typeof price === "string" ? Number.parseFloat(price) : price
-  return numPrice != null && !isNaN(numPrice) ? formatCurrency(numPrice) : "$0.00"
+  return numPrice != null && !Number.isNaN(numPrice) ? formatCurrency(Number(numPrice)) : "$0.00"
 }
 
-export function MenuItemFormDialog({
-  isOpen,
-  onOpenChange,
-  digitalMenuId,
-  menuItem,
-  onSave,
-  categories: initialCategories,
-  dishes: initialDishes,
-}: MenuItemFormDialogProps) {
+export function MenuItemFormDialog(props: MenuItemFormDialogProps) {
+  const {
+    isOpen: isOpenProp,
+    onOpenChange: onOpenChangeProp,
+    digitalMenuId,
+    menuItem,
+    onSave,
+    categories: initialCategories = [],
+    dishes: initialDishes = [],
+    children,
+  } = props
+
+  // Uncontrolled fallback if not provided
+  const [internalOpen, setInternalOpen] = useState(false)
+  const isOpen = typeof isOpenProp === "boolean" ? isOpenProp : internalOpen
+  const onOpenChange = onOpenChangeProp ?? setInternalOpen
+
   const [name, setName] = useState(menuItem?.name || "")
   const [description, setDescription] = useState(menuItem?.description || "")
   const [price, setPrice] = useState(menuItem?.price?.toString() || "")
-  const [categoryId, setCategoryId] = useState(menuItem?.menu_category_id?.toString() || "")
+  const [categoryId, setCategoryId] = useState(menuItem?.menu_category_id != null ? String(menuItem.menu_category_id) : "")
   const [isAvailable, setIsAvailable] = useState(menuItem?.is_available ?? true)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [previewImageUrl, setPreviewImageUrl] = useState(menuItem?.image_url || "")
@@ -62,8 +97,8 @@ export function MenuItemFormDialog({
   const [searchTerm, setSearchTerm] = useState<string>("")
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false)
 
-  const [allGlobalCategories, setAllGlobalCategories] = useState<any[]>(initialCategories || [])
-  const [allGlobalDishes, setAllGlobalDishes] = useState<any[]>(initialDishes || [])
+  const [allGlobalCategories, setAllGlobalCategories] = useState<Category[]>(initialCategories)
+  const [allGlobalDishes, setAllGlobalDishes] = useState<Dish[]>(initialDishes)
 
   useEffect(() => {
     if (isOpen) {
@@ -71,22 +106,25 @@ export function MenuItemFormDialog({
       setName(menuItem?.name || "")
       setDescription(menuItem?.description || "")
       setPrice(menuItem?.price?.toString() || "")
-      setCategoryId(menuItem?.menu_category_id?.toString() || "")
+      setCategoryId(menuItem?.menu_category_id != null ? String(menuItem.menu_category_id) : "")
       setIsAvailable(menuItem?.is_available ?? true)
       setPreviewImageUrl(menuItem?.image_url || "")
       setImageFile(null)
       setTab(menuItem ? "new" : "new")
-      setSelectedDishId(menuItem?.dish_id?.toString() || "")
+      setSelectedDishId(menuItem?.dish_id != null ? String(menuItem.dish_id) : "")
       setSearchTerm("")
-      fetchGlobalData()
+      // fetch when not provided
+      if (!initialCategories.length || !initialDishes.length) {
+        fetchGlobalData()
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, menuItem])
 
   const fetchGlobalData = async () => {
     try {
-      const categories = await getAllGlobalCategories()
+      const [categories, dishes] = await Promise.all([getAllGlobalCategories(), getAllDishes()])
       setAllGlobalCategories(categories)
-      const dishes = await getAllDishes()
       setAllGlobalDishes(dishes)
     } catch (error) {
       toast.error("Failed to fetch global data.")
@@ -110,8 +148,9 @@ export function MenuItemFormDialog({
     setPreviewImageUrl("")
   }
 
-  const handleCategoryCreated = () => {
-    fetchGlobalData() // Refresh categories
+  const handleCategoryCreated = async () => {
+    await fetchGlobalData() // Refresh categories
+    toast.success("Category created")
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -120,14 +159,14 @@ export function MenuItemFormDialog({
 
     try {
       if (menuItem) {
-        // Editing existing menu item (which updates the global dish)
+        // Editing existing menu item updates the underlying dish
         await updateMenuItem(
           menuItem.id,
           {
             name,
             description,
             price: Number.parseFloat(price),
-            menu_category_id: Number.parseInt(categoryId),
+            menu_category_id: categoryId ? Number.parseInt(categoryId) : null,
             isAvailable,
           },
           imageFile === null && previewImageUrl === "" ? null : imageFile,
@@ -135,45 +174,45 @@ export function MenuItemFormDialog({
         toast.success("Menu item updated successfully.")
       } else {
         // Creating new menu item
+        if (!digitalMenuId) {
+          toast.error("Digital menu ID is missing.")
+          return
+        }
         if (tab === "new") {
           if (!name || !price || !categoryId) {
             toast.error("Name, price, and category are required.")
             return
           }
-          if (!digitalMenuId) {
-            toast.error("Digital menu ID is missing.")
-            return
-          }
-          await createMenuItem({
-            digital_menu_id: digitalMenuId,
-            name,
-            description,
-            price: Number.parseFloat(price),
-            menu_category_id: Number.parseInt(categoryId),
-            isAvailable,
-          })
-          toast.success("New dish and menu item created successfully.")
+          await createMenuItem(
+            {
+              digital_menu_id: digitalMenuId,
+              name,
+              description,
+              price: Number.parseFloat(price),
+              menu_category_id: Number.parseInt(categoryId),
+              isAvailable,
+            },
+            imageFile ?? undefined,
+          )
+          toast.success("New dish created and added to menu.")
         } else {
-          // Adding existing dish to menu
+          // Add existing dish to menu
           if (!selectedDishId) {
             toast.error("Please select an existing dish.")
-            return
-          }
-          if (!digitalMenuId) {
-            toast.error("Digital menu ID is missing.")
             return
           }
           await createMenuItem({
             digital_menu_id: digitalMenuId,
             dish_id: Number.parseInt(selectedDishId),
           })
-          toast.success("Existing dish added to menu successfully.")
+          toast.success("Existing dish added to menu.")
         }
       }
+
       onSave()
       onOpenChange(false)
     } catch (error: any) {
-      toast.error(error.message || "Failed to save menu item.")
+      toast.error(error?.message || "Failed to save menu item.")
       console.error("Error saving menu item:", error)
     } finally {
       setIsSaving(false)
@@ -192,18 +231,21 @@ export function MenuItemFormDialog({
   return (
     <>
       <Dialog open={isOpen} onOpenChange={onOpenChange}>
+        {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
         <DialogContent className="sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>{menuItem ? "Edit Menu Item" : "Add Menu Item"}</DialogTitle>
             <DialogDescription>
               {menuItem
-                ? "Make changes to your menu item here. This will update the global dish."
+                ? "Make changes to your menu item here. This updates the underlying dish."
                 : "Add a new dish to your menu or select an existing one."}
             </DialogDescription>
           </DialogHeader>
+
           {!menuItem && (
             <div className="flex space-x-2 border-b">
               <Button
+                type="button"
                 variant={tab === "new" ? "secondary" : "ghost"}
                 onClick={() => setTab("new")}
                 className="rounded-b-none"
@@ -211,6 +253,7 @@ export function MenuItemFormDialog({
                 Create New Dish
               </Button>
               <Button
+                type="button"
                 variant={tab === "existing" ? "secondary" : "ghost"}
                 onClick={() => setTab("existing")}
                 className="rounded-b-none"
@@ -293,12 +336,7 @@ export function MenuItemFormDialog({
                   <Label htmlFor="isAvailable" className="text-right">
                     Available
                   </Label>
-                  <Switch
-                    id="isAvailable"
-                    checked={isAvailable}
-                    onCheckedChange={setIsAvailable}
-                    className="col-span-3"
-                  />
+                  <Switch id="isAvailable" checked={isAvailable} onCheckedChange={setIsAvailable} className="col-span-3" />
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label htmlFor="image" className="text-right">
@@ -307,12 +345,12 @@ export function MenuItemFormDialog({
                   <div className="col-span-3 flex flex-col gap-2">
                     {previewImageUrl && (
                       <div className="relative h-32 w-32">
+                        {/* Next.js supports next/image */}
                         <Image
                           src={previewImageUrl || "/placeholder.svg"}
                           alt="Preview"
-                          layout="fill"
-                          objectFit="cover"
-                          className="rounded-md"
+                          fill
+                          className="rounded-md object-cover"
                         />
                         <Button
                           type="button"

@@ -36,14 +36,19 @@ BEGIN
         ALTER TABLE ingredients ADD COLUMN description TEXT;
     END IF;
     
+    -- Add supplier_id column if it doesn't exist
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ingredients' AND column_name = 'supplier_id') THEN
+        ALTER TABLE ingredients ADD COLUMN supplier_id INTEGER;
+    END IF;
+    
     -- Add unit column if it doesn't exist
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ingredients' AND column_name = 'unit') THEN
         ALTER TABLE ingredients ADD COLUMN unit VARCHAR(50) DEFAULT 'unit';
     END IF;
     
-    -- Add supplier_id column if it doesn't exist
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ingredients' AND column_name = 'supplier_id') THEN
-        ALTER TABLE ingredients ADD COLUMN supplier_id INTEGER;
+    -- Make the unit column NOT NULL
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ingredients' AND column_name = 'unit' AND is_nullable = 'YES') THEN
+        ALTER TABLE ingredients ALTER COLUMN unit SET NOT NULL;
     END IF;
 END
 $$;

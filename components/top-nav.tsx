@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
-import { Bell, Search, User, ChevronDown, Settings, LogOut } from "lucide-react"
+import { Bell, Search, User, ChevronDown, Settings, LogOut } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -106,3 +106,5 @@ export function TopNav() {
     </header>
   )
 }
+
+export default TopNav

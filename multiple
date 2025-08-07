@@ -1,0 +1,274 @@
+export type Category = {
+id: number
+name: string
+type: string | null
+order_index: number | null
+}
+
+export type DigitalMenuCategory = {
+id: number
+digital_menu_id: number
+category_id: number
+order_index: number | null
+category_name: string
+}
+
+export type DigitalMenu = {
+id: number
+name: string
+status: string | null
+template_id: number | null
+restaurant_id: number
+qr_code_url: string | null
+}
+
+export type MenuItem = {
+id: number
+dish_id: number
+digital_menu_category_id: number
+order_index: number | null
+}
+
+export type Dish = {
+id: number
+restaurant_id: number
+name: string
+description: string | null
+image_url: string | null
+price: number
+currency: string
+menu_category_id: number | null
+}
+
+export type MenuTemplate = {
+id: number
+name: string
+description: string | null
+preview_image_url: string | null
+thumbnail_url: string | null
+}
+
+export type DigitalMenuWithTemplate = {
+id: number
+name: string
+status: string | null
+template_id: number | null
+qr_code_url: string | null
+restaurant_id: number
+template_name: string | null
+template_description: string | null
+template_preview_image_url: string | null
+template_thumbnail_url: string | null
+}
+
+// Update a category (ownership-checked)
+export async function updateCategory(
+id: number,
+data: { name?: string; type?: string | null; order_index?: number | null },
+): Promise<Category> {
+const restaurantId = await getRestaurantIdFromSession()
+if (!restaurantId) throw new Error("Authentication required.")
+
+// Ensure ownership
+const [exists] = await sql<{ id: number }[]>`
+  SELECT id FROM categories
+  WHERE id = ${id} AND restaurant_id = ${restaurantId}
+`
+if (!exists) throw new Error("Category not found or not owned by this restaurant.")
+
+const fields: string[] = []
+const values: any[] = []
+
+if (typeof data.name !== "undefined") {
+  fields.push(`name = $${fields.length + 1}`)
+  values.push(data.name)
+}
+if (typeof data.type !== "undefined") {
+  fields.push(`type = $${fields.length + 1}`)
+  values.push(data.type)
+}
+if (typeof data.order_index !== "undefined") {
+  fields.push(`order_index = $${fields.length + 1}`)
+  values.push(data.order_index)
+}
+
+if (fields.length > 0) {
+  const setClause = fields.join(", ")
+  await sql({
+    text: `UPDATE categories SET ${setClause}, updated_at = NOW() WHERE id = $${fields.length + 1}`,
+    values: [...values, id],
+  })
+}
+
+const [row] = await sql<Category[]>`
+  SELECT id, name, type, order_index
+  FROM categories
+  WHERE id = ${id}
+`
+// Optional: revalidate settings page
+// no harm if the route doesn't exist; safe to keep
+try { 
+  // @ts-ignore - available at runtime in Next
+  revalidatePath("/dashboard/settings/categories") 
+} catch {}
+return row
+}
+
+// Delete a category (ownership-checked)
+export async function deleteCategory(id: number): Promise<{ success: boolean }> {
+const restaurantId = await getRestaurantIdFromSession()
+if (!restaurantId) throw new Error("Authentication required.")
+
+const [exists] = await sql<{ id: number }[]>`
+  SELECT id FROM categories
+  WHERE id = ${id} AND restaurant_id = ${restaurantId}
+`
+if (!exists) throw new Error("Category not found or not owned by this restaurant.")
+
+await sql`DELETE FROM digital_menu_categories WHERE category_id = ${id}`
+await sql`UPDATE dishes SET menu_category_id = NULL WHERE menu_category_id = ${id}`
+await sql`DELETE FROM categories WHERE id = ${id}`
+
+try { revalidatePath("/dashboard/settings/categories") } catch {}
+return { success: true }
+}
+
+// Link a category to a digital menu (with ordering)
+export async function addCategoryToDigitalMenu(digitalMenuId: number, categoryId: number) {
+const restaurantId = await getRestaurantIdFromSession()
+if (!restaurantId) throw new Error("Authentication required.")
+
+const [menu] = await sql<{ id: number }[]>`
+  SELECT id FROM digital_menus WHERE id = ${digitalMenuId} AND restaurant_id = ${restaurantId}
+`
+if (!menu) throw new Error("Digital menu not found or not owned by this restaurant.")
+
+const [cat] = await sql<{ id: number; name: string }[]>`
+  SELECT id, name FROM categories WHERE id = ${categoryId} AND restaurant_id = ${restaurantId}
+`
+if (!cat) throw new Error("Category not found or not owned by this restaurant.")
+
+const [existing] = await sql<{ id: number }[]>`
+  SELECT id FROM digital_menu_categories
+  WHERE digital_menu_id = ${digitalMenuId} AND category_id = ${categoryId}
+`
+if (existing) {
+  return {
+    id: existing.id,
+    digital_menu_id: digitalMenuId,
+    category_id: categoryId,
+    order_index: null,
+    category_name: cat.name,
+  }
+}
+
+const [maxOrder] = await sql<{ max_order: number | null }[]>`
+  SELECT MAX(order_index) AS max_order
+  FROM digital_menu_categories
+  WHERE digital_menu_id = ${digitalMenuId}
+`
+const nextOrder = (typeof maxOrder?.max_order === "number" ? maxOrder.max_order : 0) + 1
+
+const [row] = await sql<{ id: number; order_index: number | null }[]>`
+  INSERT INTO digital_menu_categories (digital_menu_id, category_id, order_index, created_at, updated_at)
+  VALUES (${digitalMenuId}, ${categoryId}, ${nextOrder}, NOW(), NOW())
+  RETURNING id, order_index
+`
+try { revalidatePath("/dashboard/menu-studio/digital-menu") } catch {}
+return {
+  id: row.id,
+  digital_menu_id: digitalMenuId,
+  category_id: categoryId,
+  order_index: row.order_index,
+  category_name: cat.name,
+}
+}
+
+// Unlink a category from a digital menu and resequence order_index
+export async function removeCategoryFromDigitalMenu(digitalMenuId: number, digitalMenuCategoryId: number): Promise<void> {
+const restaurantId = await getRestaurantIdFromSession()
+if (!restaurantId) throw new Error("Authentication required.")
+
+// Ensure the dmc row belongs to a menu owned by this restaurant
+const [check] = await sql<{ id: number }[]>`
+  SELECT dmc.id
+  FROM digital_menu_categories dmc
+  JOIN digital_menus dm ON dm.id = dmc.digital_menu_id
+  WHERE dmc.id = ${digitalMenuCategoryId}
+    AND dmc.digital_menu_id = ${digitalMenuId}
+    AND dm.restaurant_id = ${restaurantId}
+`
+if (!check) throw new Error("Menu category link not found or not owned by this restaurant.")
+
+await sql`DELETE FROM digital_menu_categories WHERE id = ${digitalMenuCategoryId} AND digital_menu_id = ${digitalMenuId}`
+
+// Resequence remaining
+const remaining = await sql<{ id: number }[]>`
+  SELECT id FROM digital_menu_categories
+  WHERE digital_menu_id = ${digitalMenuId}
+  ORDER BY COALESCE(order_index, 999999), id
+`
+let i = 1
+for (const row of remaining) {
+  await sql`
+    UPDATE digital_menu_categories
+    SET order_index = ${i}, updated_at = NOW()
+    WHERE id = ${row.id}
+  `
+  i++
+}
+
+try { revalidatePath("/dashboard/menu-studio/digital-menu") } catch {}
+}
+
+// Get a single digital menu with its template info (if any)
+export async function getDigitalMenuWithTemplate(menuId: number): Promise<DigitalMenuWithTemplate | null> {
+const restaurantId = await getRestaurantIdFromSession()
+if (!restaurantId) return null
+
+const [row] = await sql<DigitalMenuWithTemplate[]>`
+  SELECT 
+    dm.id,
+    dm.name,
+    dm.status,
+    dm.template_id,
+    dm.qr_code_url,
+    dm.restaurant_id,
+    mt.name AS template_name,
+    mt.description AS template_description,
+    mt.preview_image_url AS template_preview_image_url,
+    mt.thumbnail_url AS template_thumbnail_url
+  FROM digital_menus dm
+  LEFT JOIN menu_templates mt ON mt.id = dm.template_id
+  WHERE dm.id = ${menuId} AND dm.restaurant_id = ${restaurantId}
+  LIMIT 1
+`
+return row ?? null
+}
+
+// Delete a global dish (used as deleteReusableMenuItem alias)
+async function deleteDishInternal(dishId: number) {
+const restaurantId = await getRestaurantIdFromSession()
+if (!restaurantId) throw new Error("Authentication required.")
+
+const [dish] = await sql<{ id: number; image_url: string | null }[]>`
+  SELECT id, image_url FROM dishes WHERE id = ${dishId} AND restaurant_id = ${restaurantId}
+`
+if (!dish) throw new Error("Dish not found or not owned by this restaurant.")
+
+if (dish.image_url) {
+  try { await del(dish.image_url) } catch {}
+}
+
+await sql`DELETE FROM menu_items WHERE dish_id = ${dishId}`
+await sql`DELETE FROM dishes WHERE id = ${dishId}`
+try { 
+  revalidatePath("/dashboard/menu-studio/digital-menu")
+  revalidatePath("/dashboard/menu-studio/recipes")
+  revalidatePath("/dashboard/operations-hub/recipes")
+} catch {}
+return { success: true }
+}
+
+// Export expected alias
+export const deleteReusableMenuItem = deleteDishInternal

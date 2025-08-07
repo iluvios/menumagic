@@ -1,13 +1,14 @@
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
-import { BarChart2, Lightbulb, TrendingUp } from "lucide-react"
+import { BarChart2, Lightbulb, TrendingUp } from 'lucide-react'
+import React from 'react';
 
 export default function GrowthInsightsPage() {
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-neutral-900">Growth Insights</h1>
+        <h1 className="text-3xl font-bold text-neutral-900">Growth Insights Dashboard</h1>
         <Button className="bg-warm-500 hover:bg-warm-600 text-white shadow-md">
           <BarChart2 className="mr-2 h-4 w-4" />
           Ver Reporte Completo
@@ -15,7 +16,7 @@ export default function GrowthInsightsPage() {
       </div>
 
       <p className="text-neutral-600">
-        Obtén datos accionables y recomendaciones impulsadas por IA para optimizar y hacer crecer tu restaurante.
+        This is where growth insights data will be displayed.
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

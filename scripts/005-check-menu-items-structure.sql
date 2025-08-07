@@ -8,6 +8,11 @@ FROM information_schema.columns
 WHERE table_name = 'menu_items' 
 ORDER BY ordinal_position;
 
+-- Check if the menu_items table has the correct columns
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_name = 'menu_items';
+
 -- Check constraints on menu_items
 SELECT 
     tc.constraint_name, 

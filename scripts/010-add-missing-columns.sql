@@ -31,6 +31,24 @@ BEGIN
 END
 $$;
 
+-- Add restaurant_id to categories if it doesn't exist
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'categories' AND column_name = 'restaurant_id') THEN
+        ALTER TABLE categories ADD COLUMN restaurant_id INTEGER NOT NULL;
+    END IF;
+END
+$$;
+
+-- Add is_available to dishes if it doesn't exist
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'dishes' AND column_name = 'is_available') THEN
+        ALTER TABLE dishes ADD COLUMN is_available BOOLEAN DEFAULT TRUE;
+    END IF;
+END
+$$;
+
 -- Backfill cost_per_storage_unit for existing inventory_stock_levels entries
 -- This assumes cost_per_storage_unit should initially be the same as ingredient's cost_per_unit
 UPDATE inventory_stock_levels isl

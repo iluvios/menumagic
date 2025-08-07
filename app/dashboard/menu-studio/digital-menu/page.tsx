@@ -19,7 +19,7 @@ import {
 } from "@/lib/actions/menu-studio-actions"
 import { processMenuWithAI, addAiItemToMenu } from "@/lib/actions/ai-menu-actions"
 import type { DigitalMenu as DigitalMenuType } from "@/lib/types"
-import { Upload } from "lucide-react"
+import { Upload } from 'lucide-react'
 import { DigitalMenuFormDialog } from "@/components/digital-menu-form-dialog"
 import { MenuItemFormDialog } from "@/components/menu-item-form-dialog"
 import { MenuTemplatesSection } from "@/components/menu-templates-section"
@@ -36,7 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Loader2, PlusCircle, Trash2, Edit, CheckCircle, XCircle, AlertCircle } from "lucide-react"
+import { Loader2, PlusCircle, Trash2, Edit, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -209,7 +209,6 @@ export default function DigitalMenuHubPage() {
   const [isQrDialogOpen, setIsQrDialogOpen] = useState(false)
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null)
   const [selectedMenuForQr, setSelectedMenuForQr] = useState<DigitalMenuType | null>(null)
-  const [selectedMenu, setSelectedMenu] = useState<DigitalMenu | null>(null)
   const [digitalMenus, setDigitalMenus] = useState<DigitalMenu[]>([])
   const [menuItems, setMenuItems] = useState<MenuItem[]>([])
   const [menuCategories, setMenuCategories] = useState<DigitalMenuCategory[]>([])
@@ -884,7 +883,7 @@ export default function DigitalMenuHubPage() {
                         fetchMenus()
                         toast({
                           title: "Success",
-                          description: "Digital menu updated successfully.",
+                          description: "Menu updated successfully.",
                         })
                       }}
                     >

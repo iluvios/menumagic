@@ -1,10 +1,12 @@
+import React from 'react';
+
 const CostsPage = () => {
   return (
     <div>
-      <h1>Costs Page</h1>
-      {/* Add your content here */}
+      <h1>Costs Dashboard</h1>
+      <p>This is where cost-related data will be displayed.</p>
     </div>
-  )
-}
+  );
+};
 
-export default CostsPage
+export default CostsPage;

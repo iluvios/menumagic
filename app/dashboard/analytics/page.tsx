@@ -1,21 +1,11 @@
 "use client"
 
+import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import {
-  BarChart3,
-  TrendingUp,
-  TrendingDown,
-  Eye,
-  QrCode,
-  Smartphone,
-  Users,
-  Clock,
-  Calendar,
-  Download,
-} from "lucide-react"
+import { BarChart3, TrendingUp, TrendingDown, Eye, QrCode, Smartphone, Users, Clock, Calendar, Download } from 'lucide-react'
 
 export default function AnalyticsPage() {
   const stats = [
@@ -323,6 +313,12 @@ export default function AnalyticsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* New Analytics Dashboard Section */}
+      <div>
+        <h1>Analytics Dashboard</h1>
+        <p>This is where analytics data will be displayed.</p>
+      </div>
     </div>
   )
 }

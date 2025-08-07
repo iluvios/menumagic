@@ -27,6 +27,26 @@ ALTER TABLE menu_items DROP CONSTRAINT IF EXISTS menu_items_reusable_menu_item_i
 ALTER TABLE menu_items ADD CONSTRAINT menu_items_dish_id_fkey 
     FOREIGN KEY (dish_id) REFERENCES dishes(id) ON DELETE CASCADE;
 
+-- Consolidate to a single global dish database (dishes table)
+
+-- Drop existing tables (backup data if needed)
+-- DROP TABLE menu_items;
+-- DROP TABLE reusable_menu_items;
+
+-- Create a single dishes table
+CREATE TABLE dishes (
+    id SERIAL PRIMARY KEY,
+    restaurant_id INTEGER NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    price DECIMAL(10, 2) NOT NULL,
+    menu_category_id INTEGER REFERENCES categories(id),
+    image_url VARCHAR(255),
+    is_available BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE
+);
+
 -- Show final structure
 SELECT 'Final dishes table:' as info;
 SELECT column_name, data_type 

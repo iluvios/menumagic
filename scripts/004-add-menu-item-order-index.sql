@@ -1,25 +1,14 @@
--- Add order_index column to menu_items table if it doesn't exist
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_name = 'menu_items' AND column_name = 'order_index'
-    ) THEN
-        ALTER TABLE menu_items ADD COLUMN order_index INTEGER DEFAULT 0;
-    END IF;
-END $$;
+-- Add the order_index column to the menu_items table
+ALTER TABLE menu_items ADD COLUMN order_index INT DEFAULT 0;
 
--- Update existing menu items to have sequential order_index values within their categories
-WITH ranked_items AS (
-    SELECT 
-        id, 
-        menu_category_id, 
-        digital_menu_id,
-        ROW_NUMBER() OVER (PARTITION BY menu_category_id, digital_menu_id ORDER BY id) AS new_order
+-- Optionally, seed the order_index based on existing IDs for each menu
+-- This assumes you want to order them based on the order they were created
+-- Adjust the subquery if you have a different column to determine the order
+UPDATE menu_items
+SET order_index = sub.row_number
+FROM (
+    SELECT id,
+           ROW_NUMBER() OVER (ORDER BY id) as row_number
     FROM menu_items
-)
-UPDATE menu_items mi
-SET order_index = ri.new_order - 1
-FROM ranked_items ri
-WHERE mi.id = ri.id;
+) sub
+WHERE menu_items.id = sub.id;

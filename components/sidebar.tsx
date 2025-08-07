@@ -5,30 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import {
-  LayoutDashboard,
-  ChefHat,
-  Salad,
-  DollarSign,
-  Bot,
-  Truck,
-  ShoppingCart,
-  MapPin,
-  BarChart,
-  Settings,
-  User,
-  BookOpen,
-  Printer,
-  Globe,
-  Palette,
-  QrCode,
-  Package,
-  LineChart,
-  ClipboardList,
-  CreditCard,
-  ReceiptText,
-  Table,
-} from "lucide-react"
+import { LayoutDashboard, ChefHat, Salad, DollarSign, Bot, Truck, ShoppingCart, MapPin, BarChart, Settings, User, BookOpen, Printer, Globe, Palette, QrCode, Package, LineChart, ClipboardList, CreditCard, ReceiptText, Table } from 'lucide-react'
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {}
 
@@ -241,3 +218,5 @@ export function Sidebar({ className, ...props }: SidebarProps) {
     </div>
   )
 }
+
+export default Sidebar

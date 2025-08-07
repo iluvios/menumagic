@@ -5,6 +5,20 @@
 DO $$
 BEGIN
   IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'reusable_menu_items') THEN
+    -- Create a single dishes table if it doesn't exist
+    CREATE TABLE IF NOT EXISTS dishes (
+        id SERIAL PRIMARY KEY,
+        restaurant_id INTEGER NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        price DECIMAL(10, 2) NOT NULL,
+        menu_category_id INTEGER REFERENCES categories(id),
+        image_url VARCHAR(255),
+        is_available BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE
+    );
+
     -- Migrate any data from reusable_menu_items to dishes if not already there
     INSERT INTO dishes (name, description, price, menu_category_id, restaurant_id, created_at, updated_at)
     SELECT 
@@ -60,3 +74,7 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- Drop existing tables (backup data if needed)
+-- DROP TABLE menu_items;
+-- DROP TABLE reusable_menu_items;

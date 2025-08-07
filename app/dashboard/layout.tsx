@@ -1,21 +1,24 @@
-"use client"
+import Sidebar from "@/components/sidebar";
+import TopNav from "@/components/top-nav";
 
-import type React from "react"
-import { Sidebar } from "@/components/sidebar"
-import { TopNav } from "@/components/top-nav"
+interface DashboardLayoutProps {
+  children: React.ReactNode;
+}
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   return (
-    <div className="flex h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100">
+    <div className="flex h-screen bg-gray-100">
       <Sidebar />
-      <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden">
         <TopNav />
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100">
+          <div className="container mx-auto px-6 py-8">
+            {children}
+          </div>
+        </main>
       </div>
     </div>
-  )
-}
+  );
+};
+
+export default DashboardLayout;
